@@ -1,0 +1,65 @@
+version: '3.8'
+
+services:
+  tmsserver:
+    build:
+      context: .
+      dockerfile: dockerfiles/tmsserver/Dockerfile
+    image: tmsserver
+    container_name: tmsserver
+    ports:
+      - "18944:18944"
+      - "18945:18945"
+    stdin_open: true
+    tty: true
+    restart: unless-stopped
+    networks:
+      - tms-network
+    environment:
+      - DEBUG=1
+      - LOG_LEVEL=DEBUG
+    # healthcheck:
+    #   test: ["CMD", "python3", "test_port_connectivity.py", "localhost", "18944", "18945"]
+    #   interval: 30s
+    #   timeout: 10s
+    #   retries: 3
+    #   start_period: 10s
+
+  slicer:
+    build:
+      context: .
+      dockerfile: dockerfiles/slicerGUI/Dockerfile
+    image: slicergui
+    container_name: slicergui
+    ports:
+      - "80:80"
+      - "5900:5900"
+    stdin_open: true
+    tty: true
+    # command: /opt/slicer/bin/SlicerApp-real.exe --developer-mode
+    restart: always
+    depends_on:
+      tmsserver:
+        condition: service_started
+    networks:
+      - tms-network
+    environment:
+      - DEBUG=1
+      - LOG_LEVEL=DEBUG
+      - TMS_SERVER_HOST=tmsserver
+      - TMS_SERVER_PORT_1=18944
+      - TMS_SERVER_PORT_2=18945
+    # healthcheck:
+    #   test: ["CMD", "python3", "test_port_connectivity.py", "tmsserver", "18944", "18945"]
+    #   interval: 30s
+    #   timeout: 10s
+    #   retries: 3
+    #   start_period: 20s
+
+networks:
+  tms-network:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16
+

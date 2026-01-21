@@ -1,0 +1,63 @@
+#docker build  -p 18944:18944 -p 18945:18945 -f ./dockerfiles/tmsserver/dockerfile .
+#docker build -t test -f .\dockerfiles\tmsserver\dockerfile . 
+#docker run -p 18944:18944 -p 18945:18945 -it test
+
+
+# FROM nvidia/cuda:12.3.0-base-ubuntu22.04
+# FROM mcr.microsoft.com/windows/nanoserver:1803-amd64
+# FROM dockur/windows
+FROM python:3.10-slim-bullseye
+# FROM vtech/docker-igt
+
+RUN apt-get update -y && apt-get upgrade -y --fix-missing\
+# RUN apt-get upgrade -y --fix-missing
+# RUN apt-get update -y
+&& apt-get install -y libegl1 libgl1 libxrender1 \
+    netcat iputils-ping curl telnet iproute2 net-tools dnsutils tcpdump vim
+# RUN winget update && \
+# winget install -e --id=Python.Python.3.10 &&\
+# winget install -e --id=python3-pip.Python.Pip &&\
+# winget install -e --id=libegl1 &&\
+# winget install -e --id=libgl1 &&\   
+# winget install -e --id=libxrender1
+
+# RUN apt-get install libegl1-mesa-glx
+
+ARG dpath=dockerfiles/tmsserver
+# Copy environment.yml and create the environment
+# COPY ${dpath}/environment.yml /tmp/environment.yml
+# RUN conda env create -f /tmp/environment.yml
+
+# # Make sure conda activates the environment
+# SHELL ["conda", "run", "-n", "TMS", "/bin/bash", "-c"]
+# RUN pip install vtk
+# RUN apt-get update && apt-get install -y python3 python3-pip
+RUN ln -s /usr/bin/python3 /usr/bin/python
+#--progress-bar off
+RUN pip install --no-cache-dir \
+    vtk pyigtl nibabel && \
+    pip install --no-cache-dir --index-url https://download.pytorch.org/whl/cpu torch torchvision torchaudio 2>&1 | grep -v "Hashes\|does not match" || true
+
+
+
+
+# ...existing code...
+
+# ...existing code...
+ARG spath=SlicerTMS
+COPY ${spath}/server /app/server
+COPY ${spath}/data /app/data
+COPY test_port_connectivity.py /app/test_port_connectivity.py
+COPY test_network_debug.sh /app/test_network_debug.sh
+WORKDIR /app
+
+# Make test scripts executable
+RUN chmod +x /app/test_network_debug.sh
+
+EXPOSE 18944
+EXPOSE 18945
+
+# Run the Python script
+# CMD ["conda", "run", "-n", "TMS", "python", "server/server.py", "Example4"]
+CMD [ "python", "server/server.py", "Example4"]
+# struct.error: argument for 's' must be a bytes object

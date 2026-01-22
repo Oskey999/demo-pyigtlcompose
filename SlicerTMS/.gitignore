@@ -1,0 +1,12 @@
+.DS_Store
+__pycache__/
+.pyc
+.gitattributes
+bin/
+build/
+dist/
+lib/
+.idea/
+data/Example3/
+data/Example1_bak/
+data/Example1/model_bak.pth.tar

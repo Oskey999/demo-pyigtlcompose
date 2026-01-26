@@ -22,6 +22,8 @@ RUN apt-get update && apt-get install -y \
     netcat iputils-ping curl telnet iproute2 net-tools dnsutils tcpdump vim \
     && rm -rf /var/lib/apt/lists/*
 
+RUN python3 -m pip install pyigtl --no-cache-dir 
+
 ENV QT_QPA_PLATFORM_PLUGIN_PATH=/usr/lib/x86_64-linux-gnu/qt5/plugins/platforms 
 # RUN ln -s /usr/bin/python3 /usr/bin/python
 # # Copy your pre-downloaded Slicer directory to the container
@@ -45,6 +47,7 @@ ENV PATH="${SLICER_HOME}:$PATH"
 # Copy slicerrc.py to the container
 COPY dockerfiles/slicerGUI/slicerrc.py /root/.slicerrc.py
 COPY dockerfiles/slicerGUI/installs.py /root/installs.py
+COPY dockerfiles/slicerGUI/testpyigtl.py /home/ubuntu/.config/slicer.org/testpyigtl.py
 COPY dockerfiles/slicerGUI/Slicer.ini /home/ubuntu/.config/slicer.org/Slicer.ini
 
 # # Map local directories to directories in the container

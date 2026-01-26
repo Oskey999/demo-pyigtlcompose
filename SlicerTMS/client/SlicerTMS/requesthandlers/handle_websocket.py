@@ -6,8 +6,22 @@ import json
 import numpy as np
 from vtk.util.numpy_support import vtk_to_numpy
 from vtk.util import numpy_support
-from __main__ import vtk, qt, ctk, slicer
-from slicer.ScriptedLoadableModule import *
+
+# Try to import from __main__ (Slicer context), fall back to direct imports
+try:
+    from __main__ import vtk, qt, ctk, slicer
+except (ImportError, ValueError):
+    import vtk
+    try:
+        import slicer
+        from slicer import qt, ctk
+    except ImportError:
+        pass
+
+try:
+    from slicer.ScriptedLoadableModule import *
+except ImportError:
+    pass
 
 import zlib
 import base64

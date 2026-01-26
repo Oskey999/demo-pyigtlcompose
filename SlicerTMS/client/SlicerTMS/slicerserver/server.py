@@ -1,6 +1,14 @@
 #import os
 import socket, ssl
-from __main__ import qt
+
+# Try to import from __main__ (Slicer context), fall back if not available
+try:
+    from __main__ import qt
+except (ImportError, ValueError):
+    try:
+        from slicer import qt
+    except ImportError:
+        qt = None
 
 from tornado.httpserver import HTTPServer
 from tornado.ioloop import IOLoop

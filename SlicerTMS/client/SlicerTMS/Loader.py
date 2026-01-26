@@ -5,6 +5,7 @@ import SimpleITK as sitk
 import numpy as np
 import Rendering as ren
 import Mapper as M
+import pyigtl_client as pc
 
 
 class Loader:
@@ -46,7 +47,7 @@ class Loader:
         self.enormNode = None
         self.coilDefaultMatrix = vtk.vtkMatrix4x4()
 
-        self.IGTLNode = None
+        self.pyigtl_data_client = None
 
         self.showMag = False #switch between magnetic and electric field for visualization
 
@@ -134,6 +135,20 @@ class Loader:
     def newImage(self, caller, event):
         print('New CNN Image received via PyIgtl')
         M.Mapper.modifyIncomingImage(self)
+
+    def on_image_received(self, image_message):
+        """Callback when image data is received via pyigtl"""
+        try:
+            print(f'New image received from server: {image_message.name}')
+            # Update the efieldNode with received image data if applicable
+            if hasattr(image_message, 'get_image_data'):
+                image_data = image_message.get_image_data()
+                # Convert pyigtl image to vtk and update the efieldNode
+                # This would need custom conversion logic based on image format
+                print('Processing received E-field image data')
+                M.Mapper.modifyIncomingImage(self)
+        except Exception as e:
+            print(f'Error processing received image: {e}')
 
 #  this was @staticmethod before?
     @classmethod
@@ -332,21 +347,17 @@ class Loader:
         loader.enormNode.SetName('ENorm')
 
 
-        # IGTL connections
-        loader.IGTLNode = slicer.vtkMRMLIGTLConnectorNode()
-        slicer.mrmlScene.AddNode(loader.IGTLNode)
-        # node should be visible in OpenIGTLinkIF module under connectors
-        loader.IGTLNode.SetName('Connector1')
-        # add command line stuff here
-        loader.IGTLNode.SetTypeClient('localhost', 18944)
-        # this will activate the the status of the connection:
-        loader.IGTLNode.Start()
-        loader.IGTLNode.RegisterIncomingMRMLNode(loader.efieldNode)
-        loader.IGTLNode.RegisterOutgoingMRMLNode(loader.magfieldNode)
-        loader.IGTLNode.PushOnConnect()
-        print('OpenIGTLink Connector created! \n Check IGT > OpenIGTLinkIF and start external pyigtl server.')
+        # PyIGTL data client for bidirectional E-field/magnetic field communication
+        host = os.getenv('TMS_SERVER_HOST', 'localhost')
+        port = int(os.getenv('TMS_SERVER_PORT_1', '18944'))
+        loader.pyigtl_data_client = pc.PyIGTLDataClient(host=host, port=port)
+        loader.pyigtl_data_client.set_image_callback(loader.on_image_received)
+        if loader.pyigtl_data_client.connect():
+            print(f'Connected to data server via PyIGTL at {host}:{port}')
+        else:
+            print(f'Failed to connect to data server at {host}:{port}')
 
-        # observer for the icoming IGTL image data
+        # observer for the incoming IGTL image data
         loader.pyigtlNode = slicer.util.loadVolume( os.path.join( loader.data_directory, loader._conductivity_file ) )
         # loader.pyigtlNode.Copy(loader.enormNode)
         loader.pyigtlNode.SetName('pyigtl_data')

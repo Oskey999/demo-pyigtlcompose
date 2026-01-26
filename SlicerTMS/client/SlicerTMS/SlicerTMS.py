@@ -4,6 +4,7 @@ from slicer.ScriptedLoadableModule import *
 import sys
 import Loader as L
 import SlicerWebServer as W
+import pyigtl_client as pc
 
 
 class SlicerTMS(ScriptedLoadableModule):
@@ -27,25 +28,26 @@ class SlicerTMSWidget(ScriptedLoadableModuleWidget):
 
     def setup(self):
         ScriptedLoadableModuleWidget.setup(self)
+        
+        # Initialize log first so logMessage works
+        self.log = qt.QTextEdit()
+        self.log.readOnly = True
+        self.layout.addWidget(self.log)
+        
         self.websv = W.SlicerWebServer(logMessage=self.logMessage)
 
-        # IGTL connections
-        self.IGTLNode = slicer.vtkMRMLIGTLConnectorNode()
-        slicer.mrmlScene.AddNode(self.IGTLNode)
-        self.IGTLNode.SetName('TextConnector')
-        self.IGTLNode.SetTypeClient('localhost', 18945)
-        # this will activate the the status of the connection:
-        self.IGTLNode.Start()
-        # self.IGTLNode.RegisterIncomingMRMLNode(self.textNode)
-        self.IGTLNode.PushOnConnect()
+        # PyIGTL text client for receiving file paths
+        self.text_client = pc.PyIGTLTextClient(host=os.getenv('TMS_SERVER_HOST', 'localhost'),
+                                               port=int(os.getenv('TMS_SERVER_PORT_2', '18945')))
+        self.text_client.set_message_callback(self.on_text_message_received)
+        if self.text_client.connect():
+            self.logMessage('<p>Connected to text server (pyigtl)</p>')
+        else:
+            self.logMessage('<p>Failed to connect to text server</p>')
 
-        self.textNode = slicer.mrmlScene.AddNewNodeByClass('vtkMRMLTextNode', 'TextMessage')
-        self.textNode.SetForceCreateStorageNode(True)
-        observer = self.textNode.AddObserver(slicer.vtkMRMLTextNode.TextModifiedEvent, self.newText)
-
-    def newText(self, caller, event):
-        self.t = slicer.mrmlScene.GetNodeByID('vtkMRMLTextNode1')
-        self.example_path = self.t.GetText()
+    def on_text_message_received(self, message):
+        """Callback when text message is received from server"""
+        self.example_path = str(message)
         self.setupButtons(self.example_path)
 
     def setupButtons(self, example_path):
@@ -54,7 +56,6 @@ class SlicerTMSWidget(ScriptedLoadableModuleWidget):
         self.layout.addWidget(self.collapsibleButton)
         self.formLayout = qt.QFormLayout(self.collapsibleButton)
         
-        slicer.modules.tractographydisplay.widgetRepresentation().activateWindow()
         self.loadExampleButton = qt.QPushButton("Load Example", self.collapsibleButton)
         self.formLayout.addRow(self.loadExampleButton)
         # we need to pass the selected example from the command line with the example path:
@@ -140,10 +141,8 @@ class SlicerTMSWidget(ScriptedLoadableModuleWidget):
         self.formLayout2.addRow(self.localConnectionButton)
         self.localConnectionButton.connect('clicked()', self.websv.openLocalConnection)
 
-        self.log = qt.QTextEdit()
-        self.log.readOnly = True
+        # Log widget already created in setup()
         self.formLayout2.addRow(self.log)
-        # self.logMessage('<p>Status: <i>Idle</i>\n')
 
 
     def logMessage(self, *args):

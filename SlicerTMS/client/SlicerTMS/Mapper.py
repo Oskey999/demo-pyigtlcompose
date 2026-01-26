@@ -6,6 +6,7 @@ from vtk.util.numpy_support import vtk_to_numpy
 from vtk.util.numpy_support import numpy_to_vtk
 import SimpleITK as sitk
 import timeit
+import pyigtl_client as pc
 
 class Mapper:
     def __init__(self, config=None):
@@ -94,7 +95,15 @@ class Mapper:
 
         loader.magfieldNode.SetAndObserveImageData(DataOut)
     
-        loader.IGTLNode.PushNode(loader.magfieldNode)
+        # Send magnetic field data via pyigtl instead of OpenIGTLinkNode
+        if loader.pyigtl_data_client and loader.pyigtl_data_client.connected:
+            try:
+                image_data = loader.magfieldNode.GetImageData()
+                loader.pyigtl_data_client.send_image(loader.magfieldNode.GetName(), image_data)
+            except Exception as e:
+                print(f'Error sending magnetic field via pyigtl: {e}')
+        else:
+            print('PyIGTL data client not connected, skipping send')
 
 
         # time in seconds:

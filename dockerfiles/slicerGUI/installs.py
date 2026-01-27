@@ -1,9 +1,23 @@
 import os
+import sys
 import slicer
 import shutil
 import time
 from configparser import ConfigParser
 
+
+# Add SlicerTMS module path to Python path so Slicer can find and load it
+module_path = '/tmp/Slicer-root'
+if module_path not in sys.path:
+    sys.path.insert(0, module_path)
+    print(f"Added {module_path} to sys.path")
+
+# Also ensure the module directories are in the module paths
+slicer_module_paths = [
+    '/opt/slicer/Slicer-5.8.1-linux-amd64/lib/Slicer-5.8.1/qt-scripted-modules',
+    '/opt/slicer/Slicer-5.8.1-linux-amd64/TMS',
+    '/tmp/Slicer-root'
+]
 
 # config = ConfigParser()
 # config.read('/home/ubuntu/.config/slicer.org/Slicer.ini')
@@ -16,8 +30,8 @@ from configparser import ConfigParser
 # with open('/home/ubuntu/.config/slicer.org/Slicer.ini', 'w') as configfile:
 #     config.write(configfile)
 # # Download and install Slicer from GitHub
-## Install the Easy Shitt extensions from the Slicer Extension Manager
-extensionNames = ['SlicerOpenIGTLinkIF', 'OpenIGTLinkIF', 'SlicerDMRI', 'SlicerIGT', 'IGT', 'DMRI', 'TMS']
+## Install the extensions from the Slicer Extension Manager (excluding TMS which is local)
+extensionNames = ['SlicerOpenIGTLinkIF', 'OpenIGTLinkIF', 'SlicerDMRI', 'SlicerIGT', 'IGT', 'DMRI']
 for extensionName in extensionNames:
     time.sleep(5)
     em = slicer.app.extensionsManagerModel()

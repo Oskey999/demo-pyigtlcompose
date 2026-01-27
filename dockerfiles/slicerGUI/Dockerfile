@@ -22,7 +22,6 @@ RUN apt-get update && apt-get install -y \
     netcat iputils-ping curl telnet iproute2 net-tools dnsutils tcpdump vim \
     && rm -rf /var/lib/apt/lists/*
 
-RUN python3 -m pip install pyigtl --no-cache-dir 
 
 ENV QT_QPA_PLATFORM_PLUGIN_PATH=/usr/lib/x86_64-linux-gnu/qt5/plugins/platforms 
 # RUN ln -s /usr/bin/python3 /usr/bin/python
@@ -32,6 +31,7 @@ COPY dockerfiles/slicerGUI/Slicer /opt/slicer
 WORKDIR /opt/slicer
 # RUN tar -xvzf  /opt/slicer/slicer-${Slicer_VERSION}-linux-amd64.tar.gz 
 RUN tar -xvzf  /opt/slicer/slicer-${Slicer_VERSION}.tar.gz 
+# Download is optional if tar.gz already exists; skip if not needed
 # RUN cd /opt/slicer && \
 #     wget https://download.slicer.org/repository/download/Slicer/${Slicer_VERSION}/Slicer-${Slicer_VERSION}-linux-amd64.tar.gz && \
 #     tar -xzf Slicer-${Slicer_VERSION}-linux-amd64.tar.gz && \
@@ -82,11 +82,32 @@ RUN python${python_VERSION} -m pip install --upgrade pip setuptools --no-cache-d
     && python${python_VERSION} -m pip install wheel --no-cache-dir\
     && python${python_VERSION} -m pip install --no-cache-dir vtk pyigtl nibabel torch configparser 2>&1 | grep -v "Hashes" || true
 
+# Install pyigtl to Slicer's Python environment as well
+RUN /opt/slicer/Slicer-5.8.1-linux-amd64/bin/PythonSlicer -m pip install --no-cache-dir pyigtl
+
 RUN mkdir -p /tmp/Slicer-root
 ARG spath=SlicerTMS
 COPY ${spath}/server /app/server
 COPY ${spath}/data /app/data
 COPY ${spath}/client/SlicerTMS /tmp/Slicer-root/SlicerTMS
+
+# Create directories for proper module discovery
+RUN mkdir -p /opt/slicer/Slicer-5.8.1-linux-amd64/lib/Slicer-5.8/qt-scripted-modules
+RUN mkdir -p /opt/slicer/Slicer-5.8.1-linux-amd64/slicer.org/Extensions-33241/SlicerTMS/lib/Slicer-5.8/qt-scripted-modules
+
+# Copy SlicerTMS to the proper extension location
+COPY ${spath}/client/SlicerTMS /opt/slicer/Slicer-5.8.1-linux-amd64/lib/Slicer-5.8/qt-scripted-modules/SlicerTMS
+COPY ${spath}/client/SlicerTMS /opt/slicer/Slicer-5.8.1-linux-amd64/slicer.org/Extensions-33241/SlicerTMS/lib/Slicer-5.8/qt-scripted-modules/SlicerTMS
+
+# CRITICAL: Override the old TMS directory that comes with Slicer tarball with our modified version
+RUN rm -rf /opt/slicer/Slicer-5.8.1-linux-amd64/TMS/SlicerTMS
+
+# Populate the volume with SlicerTMS before declaring it as a VOLUME
+COPY ${spath}/client/SlicerTMS /opt/slicer/Slicer-5.8.1-linux-amd64/TMS/SlicerTMS
+
+# # Mount SlicerTMS as a volume for flexibility in docker-compose
+# VOLUME ["/opt/slicer/Slicer-5.8.1-linux-amd64/TMS/SlicerTMS"]
+
 COPY test_port_connectivity.py /app/test_port_connectivity.py
 COPY test_network_debug.sh /app/test_network_debug.sh
 WORKDIR /app
@@ -101,6 +122,8 @@ EXPOSE 18945
 # Install python extensions and other dependencies
 RUN /opt/slicer/Slicer-${Slicer_VERSION}-linux-amd64/Slicer --no-splash --no-main-window ; exit 0
 RUN /opt/slicer/slicer-${Slicer_VERSION}/Slicer --python-script "/root/installs.py" --no-splash  ; exit 0
+
+RUN python3 -m pip install pyigtl --no-cache-dir 
 
 # Ensure supervisor and VNC services from base image are started (MUST be last)
 CMD ["/startup.sh"]

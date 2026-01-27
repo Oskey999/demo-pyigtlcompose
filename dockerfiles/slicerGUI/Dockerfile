@@ -85,6 +85,34 @@ RUN python${python_VERSION} -m pip install --upgrade pip setuptools --no-cache-d
 # Install pyigtl to Slicer's Python environment as well
 RUN /opt/slicer/Slicer-5.8.1-linux-amd64/bin/PythonSlicer -m pip install --no-cache-dir pyigtl
 
+# Install build tools and newer cmake for compiling Slicer extensions
+RUN apt-get update && apt-get install -y \
+    git \
+    build-essential \
+    wget \
+    && rm -rf /var/lib/apt/lists/* \
+    && cd /tmp \
+    && wget -q https://github.com/Kitware/CMake/releases/download/v3.27.0/cmake-3.27.0-linux-x86_64.tar.gz \
+    && tar -xzf cmake-3.27.0-linux-x86_64.tar.gz \
+    && cp -r cmake-3.27.0-linux-x86_64/bin/* /usr/local/bin/ \
+    && cp -r cmake-3.27.0-linux-x86_64/share/* /usr/local/share/ \
+    && rm -rf cmake-3.27.0-linux-x86_64 cmake-3.27.0-linux-x86_64.tar.gz
+
+# Note: SlicerOpenIGTLink build requires full Slicer development SDK
+# For now, we skip OpenIGTLink and use direct pyigtl TCP communication instead
+# RUN mkdir -p /opt/slicer/Slicer-5.8.1-linux-amd64/IGT && cd /opt/slicer/Slicer-5.8.1-linux-amd64/IGT
+# RUN cd /opt/slicer/Slicer-5.8.1-linux-amd64/IGT && git clone https://github.com/openigtlink/SlicerOpenIGTLink
+# RUN mkdir -p /opt/slicer/Slicer-5.8.1-linux-amd64/IGT/SlicerOpenIGTLink-build
+# RUN cd /opt/slicer/Slicer-5.8.1-linux-amd64/IGT/SlicerOpenIGTLink-build && \
+#     cmake -DCMAKE_BUILD_TYPE:STRING=Release \
+#           -DSlicer_DIR:PATH=/opt/slicer/Slicer-5.8.1-linux-amd64/lib/Slicer-5.8 \
+#           ../SlicerOpenIGTLink
+# RUN cd /opt/slicer/Slicer-5.8.1-linux-amd64/IGT/SlicerOpenIGTLink-build && make -j4
+# RUN cd /opt/slicer/Slicer-5.8.1-linux-amd64/IGT/SlicerOpenIGTLink-build/inner-build && make package
+# RUN mkdir -p /opt/slicer/Slicer-5.8.1-linux-amd64/slicer.org/Extensions-33241 && \
+#     find /opt/slicer/Slicer-5.8.1-linux-amd64/IGT/SlicerOpenIGTLink-build/inner-build -name "*.tar.gz" \
+#     -exec cp {} /opt/slicer/Slicer-5.8.1-linux-amd64/slicer.org/Extensions-33241/ \;
+
 RUN mkdir -p /tmp/Slicer-root
 ARG spath=SlicerTMS
 COPY ${spath}/server /app/server
@@ -121,7 +149,7 @@ EXPOSE 18945
 
 # Install python extensions and other dependencies
 RUN /opt/slicer/Slicer-${Slicer_VERSION}-linux-amd64/Slicer --no-splash --no-main-window ; exit 0
-RUN /opt/slicer/slicer-${Slicer_VERSION}/Slicer --python-script "/root/installs.py" --no-splash  ; exit 0
+RUN /opt/slicer/Slicer-${Slicer_VERSION}-linux-amd64/Slicer --python-script "/root/installs.py" --no-splash  ; exit 0
 
 RUN python3 -m pip install pyigtl --no-cache-dir 
 

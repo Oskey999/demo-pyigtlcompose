@@ -4,6 +4,7 @@ import slicer
 import shutil
 import time
 from configparser import ConfigParser
+from slicer.util import VTKObservationMixin
 
 
 # Add SlicerTMS module path to Python path so Slicer can find and load it
@@ -16,8 +17,23 @@ if module_path not in sys.path:
 slicer_module_paths = [
     '/opt/slicer/Slicer-5.8.1-linux-amd64/lib/Slicer-5.8.1/qt-scripted-modules',
     '/opt/slicer/Slicer-5.8.1-linux-amd64/TMS',
+    '/opt/slicer/Slicer-5.8.1-linux-amd64/IGT',
     '/tmp/Slicer-root'
 ]
+
+# Register module paths with Slicer
+factoryManager = slicer.app.moduleManager().factoryManager()
+for modulePath in slicer_module_paths:
+    if os.path.exists(modulePath):
+        try:
+            factoryManager.registerModule(slicer.util.qt.QFileInfo(modulePath))
+            print(f"Registered module path: {modulePath}")
+        except Exception as e:
+            print(f"Failed to register module path {modulePath}: {e}")
+    else:
+        print(f"Module path does not exist: {modulePath}")
+
+print("--------------------Attempting to load SlicerTMS module...--------------------------------")
 
 # config = ConfigParser()
 # config.read('/home/ubuntu/.config/slicer.org/Slicer.ini')
@@ -31,7 +47,7 @@ slicer_module_paths = [
 #     config.write(configfile)
 # # Download and install Slicer from GitHub
 ## Install the extensions from the Slicer Extension Manager (excluding TMS which is local)
-extensionNames = ['SlicerOpenIGTLinkIF', 'OpenIGTLinkIF', 'SlicerDMRI', 'SlicerIGT', 'IGT', 'DMRI']
+extensionNames = [  'SlicerDMRI', 'SlicerIGT', 'IGT', 'DMRI']#'SlicerOpenIGTLinkIF','OpenIGTLinkIF',
 for extensionName in extensionNames:
     time.sleep(5)
     em = slicer.app.extensionsManagerModel()
@@ -39,6 +55,8 @@ for extensionName in extensionNames:
     restart = True  # This will cause Slicer to restart after each installation
     if not em.installExtensionFromServer(extensionName, restart):
         print(f"Failed to install {extensionName} extension")
+
+print("----------------All specified extensions have been processed.--------------------------")
 
 # archiveFilePath = os.path.join(slicer.app.temporaryPath, "main.zip")
 # outputDir = os.path.join(slicer.app.temporaryPath, "SlicerTMS")

@@ -1,0 +1,68 @@
+FROM linuxserver/webtop:ubuntu-xfce
+
+# Install all dependencies in one layer with cleanup
+# This layer will be cached unless dependencies change
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+        git \
+        subversion \
+        build-essential \
+        cmake-curses-gui \
+        cmake-qt-gui \
+        qtmultimedia5-dev \
+        qttools5-dev \
+        libqt5xmlpatterns5-dev \
+        libqt5svg5-dev \
+        qtwebengine5-dev \
+        qtscript5-dev \
+        qtbase5-private-dev \
+        libqt5x11extras5-dev \
+        libxt-dev \
+        libssl-dev \
+        ca-certificates \
+    && rm -rf /var/lib/apt/lists/* \
+    && apt-get clean
+
+# Create slicer directory structure
+RUN mkdir -p /root/slicer
+
+# Clone Slicer source (separate layer for better caching)
+# This layer will only rebuild if the version tag changes
+WORKDIR /root/slicer
+RUN git clone --depth 1 --branch v5.8.1 https://github.com/slicer/Slicer
+
+# Configure CMake (separate layer)
+# This allows you to modify build flags without re-cloning
+RUN mkdir -p Slicer-SuperBuild-Release && \
+    cd Slicer-SuperBuild-Release && \
+    cmake \
+        -DCMAKE_BUILD_TYPE:STRING=Release \
+        -DSlicer_USE_SYSTEM_OpenSSL=ON \
+        -DCMAKE_C_COMPILER_LAUNCHER=ccache \
+        -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
+        ../Slicer
+
+# Build with all available cores
+# Use MAKEFLAGS to allow overriding at build time
+WORKDIR /root/slicer/Slicer-SuperBuild-Release
+RUN make -j$(nproc)
+
+# Package Slicer
+RUN cd Slicer-build && \
+    make package && \
+    mkdir -p /root/slicer/packages && \
+    mv *.tar.gz /root/slicer/packages/
+
+# Clean up build artifacts to reduce image size (optional)
+# Comment out if you need to keep build files for debugging
+RUN cd /root/slicer && \
+    rm -rf Slicer-SuperBuild-Release/*/CMakeFiles \
+    rm -rf Slicer-SuperBuild-Release/*/CMakeTmp \
+    find Slicer-SuperBuild-Release -name "*.o" -delete
+
+WORKDIR /root
+
+# Optional: Create a symlink to the built Slicer for easy access
+RUN cd /root/slicer/packages && \
+    tar -xzf *.tar.gz && \
+    ln -s /root/slicer/packages/Slicer-*/Slicer /usr/local/bin/Slicer || true

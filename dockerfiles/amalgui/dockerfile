@@ -1,0 +1,54 @@
+FROM linuxserver/webtop:ubuntu-xfce
+
+
+# RUN apt-get update && apt-get upgrade -y && apt-get install apt-utils -y \
+#     && apt-get install -y software-properties-common curl apache2-utils \
+#     && apt-get update \
+#     && apt-get install -y \
+#         supervisor nginx sudo net-tools zenity \
+#         dbus-x11 x11-utils alsa-utils \
+#         mesa-utils wget
+
+# python library
+# COPY rootfs/usr/local/lib/web/backend/requirements.txt /tmp/
+# RUN apt-get update \
+#     && dpkg-query -W -f='${Package}\n' > /tmp/a.txt \
+#     && apt-get install -y python3-pip python3-dev build-essential \
+#     && pip3 install -r /tmp/requirements.txt \
+#     && ln -s /usr/bin/python3 /usr/local/bin/python \
+#     && dpkg-query -W -f='${Package}\n' > /tmp/b.txt \
+#     && apt-get remove -y `diff --changed-group-format='%>' --unchanged-group-format='' /tmp/a.txt /tmp/b.txt | xargs` \
+#     && apt-get autoclean -y \
+#     && apt-get autoremove -y \
+#     && rm -rf /var/lib/apt/lists/* \
+#     && rm -rf /var/cache/apt/* /tmp/a.txt /tmp/b.txt
+
+#
+# Prerequisite for 3D Slicer
+#
+RUN apt update \
+    && apt install -y git subversion build-essential cmake-curses-gui cmake-qt-gui \
+    && apt install -y qtmultimedia5-dev qttools5-dev libqt5xmlpatterns5-dev libqt5svg5-dev qtwebengine5-dev qtscript5-dev \
+    && apt install -y qtbase5-private-dev libqt5x11extras5-dev \
+    && apt install -y libxt-dev libssl-dev
+################################################################################
+
+#
+# Build 3D Slicer
+#
+RUN mkdir /root/slicer \
+    && cd /root/slicer \
+    && git clone --branch v5.8.1 https://github.com/slicer/Slicer \
+    && mkdir Slicer-SuperBuild-Release \
+    && cd Slicer-SuperBuild-Release \
+    && cmake -DCMAKE_BUILD_TYPE:STRING=Release -DSlicer_USE_SYSTEM_OpenSSL=ON ../Slicer \
+    && make -j4
+
+#
+# Slicer Package
+#
+RUN cd /root/slicer/Slicer-SuperBuild-Release/Slicer-build \
+    && make package \
+    && mkdir -p /root/slicer/packages \
+    && mv *.tar.gz /root/slicer/packages
+

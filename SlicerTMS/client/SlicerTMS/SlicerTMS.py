@@ -33,7 +33,13 @@ class SlicerTMSWidget(ScriptedLoadableModuleWidget):
         self.IGTLNode = slicer.vtkMRMLIGTLConnectorNode()
         slicer.mrmlScene.AddNode(self.IGTLNode)
         self.IGTLNode.SetName('TextConnector')
-        self.IGTLNode.SetTypeClient('localhost', 18945)
+        # self.IGTLNode.SetTypeClient('localhost', 18945)
+        # Get server host from environment variable
+        tms_server_host = os.environ.get('TMS_SERVER_HOST', 'localhost')
+        tms_server_port = int(os.environ.get('TMS_SERVER_PORT_2', '18945'))
+
+        self.IGTLNode.SetTypeClient(tms_server_host, tms_server_port)
+        print(f'Connecting TextConnector to TMS server at {tms_server_host}:{tms_server_port}')
         # this will activate the the status of the connection:
         self.IGTLNode.Start()
         # self.IGTLNode.RegisterIncomingMRMLNode(self.textNode)

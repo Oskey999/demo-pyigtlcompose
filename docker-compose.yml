@@ -28,19 +28,19 @@ services:
   slicer:
     build:
       context: .
-      dockerfile: dockerfiles/slicerGUI/Dockerfile
+      dockerfile: dockerfiles/borrowedgui/Dockerfile
     image: slicergui
     container_name: slicergui
     ports:
-      - "80:80"
+      - "6080:80"
       - "5900:5900"
     stdin_open: true
     tty: true
     # command: /opt/slicer/bin/SlicerApp-real.exe --developer-mode
     restart: always
-    depends_on:
-      tmsserver:
-        condition: service_started
+    # depends_on:
+    #   tmsserver:
+    #     condition: service_started
     networks:
       - tms-network
     environment:
@@ -49,12 +49,104 @@ services:
       - TMS_SERVER_HOST=tmsserver
       - TMS_SERVER_PORT_1=18944
       - TMS_SERVER_PORT_2=18945
+    
     # healthcheck:
     #   test: ["CMD", "python3", "test_port_connectivity.py", "tmsserver", "18944", "18945"]
     #   interval: 30s
     #   timeout: 10s
     #   retries: 3
     #   start_period: 20s
+  
+  ROSsim:
+    image: rossim
+    container_name: rossim
+    build:
+      context: .
+      dockerfile: dockerfiles/ROS2armsim/Dockerfile.buildkit.fixed
+      # Add build arguments for memory control
+      shm_size: 2gb
+    ports:
+      - "3000:3000"
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - TZ=Australia/Perth
+      - SUBFOLDER=/
+      - TITLE=ROS2 Simulator
+    volumes:
+      - ./config:/config
+    shm_size: 2gb
+    # Add memory limits to prevent OOM during runtime
+    mem_limit: 4g
+    memswap_limit: 4g
+    restart: unless-stopped
+    # Optional: GPU support if available
+    # devices:
+    #   - /dev/dri:/dev/dri
+
+  Amalgui:
+    build:
+      context: .
+      dockerfile: dockerfiles/amalgui/dockerfile
+    image: amalgui
+    container_name: amalgui
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - TZ=Etc/UTC
+      - DEBUG=1
+      - LOG_LEVEL=DEBUG
+    # volumes:
+    #   - /path/to/data:/config
+    ports:
+      - 3002:3000
+      - 3003:3001
+    shm_size: "1gb"
+    stdin_open: true
+    tty: true
+    restart: always
+    networks:
+      - tms-network
+  
+  Amalguicloud:
+    build:
+      context: .
+      dockerfile: dockerfiles/amalgui/dockerfile
+    image: amalguicloud
+    container_name: amalguicloud
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - TZ=Etc/UTC
+      - DEBUG=1
+      - LOG_LEVEL=DEBUG
+    # volumes:
+    #   - /path/to/data:/config
+    ports:
+      - 3002:3000
+      - 3003:3001
+    shm_size: "1gb"
+    stdin_open: true
+    tty: true
+    restart: always
+    networks:
+      - tms-network
+
+    
+  # webtop:
+  #   image: lscr.io/linuxserver/webtop:latest
+  #   container_name: webtop
+  #   environment:
+  #     - PUID=1000
+  #     - PGID=1000
+  #     - TZ=Etc/UTC
+  #   volumes:
+  #     - /path/to/data:/config
+  #   ports:
+  #     - 3000:3000
+  #     - 3001:3001
+  #   shm_size: "1gb"
+  #   restart: unless-stopped
 
 networks:
   tms-network:

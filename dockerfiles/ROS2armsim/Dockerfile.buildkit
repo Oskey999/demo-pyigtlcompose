@@ -1,0 +1,163 @@
+# syntax=docker/dockerfile:1.4
+## Docker container for simulating a robot arm using ROS2 and Gazebo
+## Based on ubuntu desktop with XFCE and web access
+## Fixed D-Bus and PolicyKit permission issues
+## BuildKit optimized for faster builds
+
+# Use Ubuntu 24.04 with ROS 2 Jazzy
+#https://moveit.picknik.ai/main/index.html
+#https://docs.linuxserver.io/images/docker-webtop/#version-tags
+FROM linuxserver/webtop:ubuntu-xfce
+
+ENV ROS_DISTRO=jazzy
+ARG DEBIAN_FRONTEND=noninteractive
+
+## Web access port
+EXPOSE 3000
+
+## Install ROS2 Jazzy with BuildKit cache mounts for faster rebuilds
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,target=/var/lib/apt,sharing=locked \
+    apt-get update && apt-get install -y \
+    gnupg2 lsb-release curl software-properties-common locales \
+    && locale-gen en_US en_US.UTF-8 \
+    && update-locale LC_ALL=en_US.UTF-8 LANG=en_US.UTF-8 \
+    && export LANG=en_US.UTF-8 \
+    && curl -sSL https://raw.githubusercontent.com/ros/rosdistro/master/ros.key -o /usr/share/keyrings/ros-archive-keyring.gpg \
+    && echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/ros-archive-keyring.gpg] http://packages.ros.org/ros2/ubuntu $(lsb_release -cs) main" | tee /etc/apt/sources.list.d/ros2.list > /dev/null
+
+## Install ROS2 packages (separate layer for better caching)
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,target=/var/lib/apt,sharing=locked \
+    apt-get update && apt-get install -y \
+    ros-${ROS_DISTRO}-desktop \
+    ros-${ROS_DISTRO}-moveit
+
+## Load ROS2 environment and install build dependencies
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,target=/var/lib/apt,sharing=locked \
+    apt-get update && apt-get install -y \
+    python3-rosdep \
+    python3-colcon-common-extensions \
+    python3-colcon-mixin \
+    python3-vcstool \
+    git \
+    build-essential \
+    cmake
+
+## Install additional GUI stability packages
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,target=/var/lib/apt,sharing=locked \
+    apt-get update && apt-get install -y \
+    dbus-x11 \
+    libgl1 libglx-mesa0 \
+    libgl1-mesa-dri \
+    mesa-utils
+
+## Configure D-Bus to suppress PolicyKit and login1 errors
+## These services aren't needed in a container environment
+RUN mkdir -p /etc/dbus-1/system.d/ \
+    && echo '<!DOCTYPE busconfig PUBLIC "-//freedesktop//DTD D-BUS Bus Configuration 1.0//EN" \
+ "http://www.freedesktop.org/standards/dbus/1.0/busconfig.dtd"> \
+<busconfig> \
+  <servicedir>/usr/share/dbus-1/system-services</servicedir> \
+  <servicehelper>/bin/false</servicehelper> \
+</busconfig>' > /etc/dbus-1/system.d/no-systemd.conf
+
+## Disable unnecessary D-Bus services in container
+RUN if [ -d /usr/share/dbus-1/system-services/ ]; then \
+        cd /usr/share/dbus-1/system-services/ && \
+        for service in org.freedesktop.login1.service org.freedesktop.PolicyKit1.service; do \
+            if [ -f "$service" ]; then \
+                mv "$service" "$service.disabled" || true; \
+            fi; \
+        done; \
+    fi
+
+## Initialize rosdep (with cache mount for faster rebuilds)
+RUN --mount=type=cache,target=/root/.ros,sharing=locked \
+    rosdep init || true && rosdep update
+
+## Install Colcon mixins (with cache mount)
+RUN --mount=type=cache,target=/root/.colcon,sharing=locked \
+    colcon mixin add default https://raw.githubusercontent.com/colcon/colcon-mixin-repository/master/index.yaml || true \
+    && colcon mixin update default || true
+
+## Create workspace directory structure
+RUN mkdir -p /root/ws_moveit/src
+
+## Clone tutorials (with git cache mount for faster cloning)
+RUN --mount=type=cache,target=/root/.gitcache,sharing=locked \
+    cd /root/ws_moveit/src \
+    && git clone https://github.com/moveit/moveit2_tutorials \
+    && echo "Tutorials cloned successfully"
+
+## Import dependencies (with git cache mount)
+RUN --mount=type=cache,target=/root/.gitcache,sharing=locked \
+    cd /root/ws_moveit/src \
+    && vcs import --recursive < moveit2_tutorials/moveit2_tutorials.repos \
+    && echo "Dependencies imported successfully"
+
+## Install rosdep dependencies (with apt cache)
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,target=/var/lib/apt,sharing=locked \
+    cd /root/ws_moveit \
+    && apt-get update \
+    && rosdep install -r --from-paths . --ignore-src --rosdistro ${ROS_DISTRO} -y \
+    && echo "Dependencies installed successfully"
+
+## Build Workspace with BuildKit cache mount for ccache
+## This dramatically speeds up rebuilds when source code changes
+RUN --mount=type=cache,target=/root/.ccache,sharing=locked \
+    --mount=type=cache,target=/root/ws_moveit/build,sharing=locked \
+    /bin/bash -c "source /opt/ros/${ROS_DISTRO}/setup.bash \
+    && cd /root/ws_moveit \
+    && echo 'Starting colcon build...' \
+    && colcon build \
+        --executor sequential \
+        --parallel-workers 1 \
+        --cmake-args -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
+        --event-handlers console_direct+ \
+    && echo 'Build completed successfully'" \
+    || (echo "Build failed but continuing..." && exit 0)
+
+## Copy build artifacts from cache mount to final layer
+RUN --mount=type=cache,target=/root/ws_moveit/build,sharing=locked \
+    cd /root/ws_moveit \
+    && if [ -d "install" ]; then \
+        echo "Build successful - install directory exists"; \
+    else \
+        echo "WARNING: Build may have failed - no install directory"; \
+    fi
+
+## Set Up Workspace in bashrc for root user
+RUN echo 'source /opt/ros/'${ROS_DISTRO}'/setup.bash' >> /root/.bashrc \
+    && echo '[ -f /root/ws_moveit/install/setup.bash ] && source /root/ws_moveit/install/setup.bash' >> /root/.bashrc
+
+## Set Up Workspace in bashrc for abc user (linuxserver default user)  
+RUN echo 'source /opt/ros/'${ROS_DISTRO}'/setup.bash' >> /config/.bashrc \
+    && echo '[ -f /root/ws_moveit/install/setup.bash ] && source /root/ws_moveit/install/setup.bash' >> /config/.bashrc
+
+## Create a script to start demo
+RUN echo '#!/bin/bash\n\
+source /opt/ros/'${ROS_DISTRO}'/setup.bash\n\
+if [ -f /root/ws_moveit/install/setup.bash ]; then\n\
+    source /root/ws_moveit/install/setup.bash\n\
+    cd /root/ws_moveit/\n\
+    ros2 launch moveit2_tutorials demo.launch.py\n\
+else\n\
+    echo "ERROR: MoveIt workspace not built. Please rebuild the container."\n\
+    exit 1\n\
+fi' > /usr/local/bin/start-demo.sh \
+    && chmod +x /usr/local/bin/start-demo.sh
+
+## Ensure proper permissions
+RUN mkdir -p /config && chmod 755 /config
+
+## Set environment for container runtime
+ENV LANG=en_US.UTF-8
+ENV LC_ALL=en_US.UTF-8
+
+## Suppress D-Bus warnings at runtime
+ENV DBUS_SESSION_BUS_ADDRESS=unix:path=/dev/null
+ENV NO_AT_BRIDGE=1

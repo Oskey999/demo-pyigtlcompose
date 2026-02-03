@@ -333,7 +333,12 @@ class Loader:
 
 
         # IGTL connections
-        loader.IGTLNode = slicer.vtkMRMLIGTLConnectorNode()
+        # Get server host from environment variable
+        tms_server_host = os.environ.get('TMS_SERVER_HOST', 'localhost')
+        tms_server_port = int(os.environ.get('TMS_SERVER_PORT_1', '18944'))
+
+        loader.IGTLNode.SetTypeClient(tms_server_host, tms_server_port)
+        print(f'Connecting to TMS server at {tms_server_host}:{tms_server_port}')
         slicer.mrmlScene.AddNode(loader.IGTLNode)
         # node should be visible in OpenIGTLinkIF module under connectors
         loader.IGTLNode.SetName('Connector1')

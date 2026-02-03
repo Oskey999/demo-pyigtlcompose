@@ -1,0 +1,122 @@
+## Docker container for simulating a robot arm using ROS2 and Gazebo
+## Based on ubuntu desktop with XFCE and web access
+
+# Use Ubuntu 24.04 with ROS 2 Jazzy
+#https://moveit.picknik.ai/main/index.html
+#https://docs.linuxserver.io/images/docker-webtop/#version-tags
+FROM linuxserver/webtop:ubuntu-xfce
+
+ENV ROS_DISTRO=jazzy
+ARG DEBIAN_FRONTEND=noninteractive
+
+## Web access port
+EXPOSE 3000
+
+## Install ROS2 Jazzy
+RUN apt-get update && apt-get install -y \
+    gnupg2 lsb-release curl software-properties-common locales \
+    && locale-gen en_US en_US.UTF-8 \
+    && update-locale LC_ALL=en_US.UTF-8 LANG=en_US.UTF-8 \
+    && export LANG=en_US.UTF-8 \
+    && curl -sSL https://raw.githubusercontent.com/ros/rosdistro/master/ros.key -o /usr/share/keyrings/ros-archive-keyring.gpg \
+    && echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/ros-archive-keyring.gpg] http://packages.ros.org/ros2/ubuntu $(lsb_release -cs) main" | tee /etc/apt/sources.list.d/ros2.list > /dev/null \
+    && apt-get update && apt-get install -y \
+    ros-${ROS_DISTRO}-desktop \
+    ros-${ROS_DISTRO}-moveit \
+    && rm -rf /var/lib/apt/lists/*
+
+## Load ROS2 environment and install dependencies
+RUN apt-get update && apt-get install -y \
+    python3-rosdep \
+    python3-colcon-common-extensions \
+    python3-colcon-mixin \
+    python3-vcstool \
+    git \
+    build-essential \
+    cmake \
+    && rm -rf /var/lib/apt/lists/*
+
+## Install additional GUI stability packages
+RUN apt-get update && apt-get install -y \
+    dbus-x11 \
+    libgl1 libglx-mesa0 \
+    libgl1-mesa-dri \
+    mesa-utils \
+    && rm -rf /var/lib/apt/lists/*
+
+## Initialize rosdep
+RUN rosdep init || true && rosdep update
+
+## Install Colcon mixins
+RUN colcon mixin add default https://raw.githubusercontent.com/colcon/colcon-mixin-repository/master/index.yaml || true \
+    && colcon mixin update default || true
+
+## Create workspace directory structure
+RUN mkdir -p /root/ws_moveit/src
+
+## Clone tutorials (do this separately to cache this layer)
+RUN cd /root/ws_moveit/src \
+    && git clone https://github.com/moveit/moveit2_tutorials \
+    && echo "Tutorials cloned successfully"
+
+## Import dependencies (separate step for better caching)
+RUN cd /root/ws_moveit/src \
+    && vcs import --recursive < moveit2_tutorials/moveit2_tutorials.repos \
+    && echo "Dependencies imported successfully"
+
+## Install rosdep dependencies (separate from build)
+RUN cd /root/ws_moveit \
+    && apt-get update \
+    && rosdep install -r --from-paths . --ignore-src --rosdistro ${ROS_DISTRO} -y \
+    && rm -rf /var/lib/apt/lists/* \
+    && echo "Dependencies installed successfully"
+
+## Build Workspace - CRITICAL: Use minimal resources to avoid OOM
+## Single worker, sequential executor, release mode
+RUN /bin/bash -c "source /opt/ros/${ROS_DISTRO}/setup.bash \
+    && cd /root/ws_moveit \
+    && echo 'Starting colcon build...' \
+    && colcon build \
+        --executor sequential \
+        --parallel-workers 1 \
+        --cmake-args -DCMAKE_BUILD_TYPE=Release \
+        --event-handlers console_direct+ \
+    && echo 'Build completed successfully'" \
+    || (echo "Build failed but continuing..." && exit 0)
+
+## Verify build succeeded
+RUN cd /root/ws_moveit \
+    && if [ -d "install" ]; then \
+        echo "Build successful - install directory exists"; \
+    else \
+        echo "WARNING: Build may have failed - no install directory"; \
+    fi
+
+## Set Up Workspace in bashrc for root user
+RUN echo 'source /opt/ros/'${ROS_DISTRO}'/setup.bash' >> /root/.bashrc \
+    && echo '[ -f /root/ws_moveit/install/setup.bash ] && source /root/ws_moveit/install/setup.bash' >> /root/.bashrc
+
+## Set Up Workspace in bashrc for abc user (linuxserver default user)  
+RUN echo 'source /opt/ros/'${ROS_DISTRO}'/setup.bash' >> /config/.bashrc \
+    && echo '[ -f /root/ws_moveit/install/setup.bash ] && source /root/ws_moveit/install/setup.bash' >> /config/.bashrc
+
+## Create a script to start demo
+RUN echo '#!/bin/bash\n\
+source /opt/ros/'${ROS_DISTRO}'/setup.bash\n\
+if [ -f /root/ws_moveit/install/setup.bash ]; then\n\
+    source /root/ws_moveit/install/setup.bash\n\
+    cd /root/ws_moveit/\n\
+    ros2 launch moveit2_tutorials demo.launch.py\n\
+else\n\
+    echo "ERROR: MoveIt workspace not built. Please rebuild the container."\n\
+    exit 1\n\
+fi' > /usr/local/bin/start-demo.sh \
+    && chmod +x /usr/local/bin/start-demo.sh
+
+## Ensure proper permissions
+RUN mkdir -p /config && chmod 755 /config
+
+## Set environment for container runtime
+ENV LANG=en_US.UTF-8
+ENV LC_ALL=en_US.UTF-8
+ 

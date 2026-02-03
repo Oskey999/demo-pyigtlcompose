@@ -1,0 +1,153 @@
+FROM rosmed/docker-ubuntu-22.04-ros2-slicerros2-lw:ismr2024
+
+
+ENV pathtoS=/root/slicer/Slicer-5.6/Slicer
+ARG dockerpath=dockerfiles/borrowedgui
+# Install Slicer TMS
+ENV pathdep=/opt/slicerdep
+RUN mkdir -p ${pathdep}
+ARG spath=SlicerTMS
+COPY ${spath}/client/SlicerTMS ${pathdep}/SlicerTMS
+# Set SlicerTMS to open on startup
+COPY ${dockerpath}/onstart.py /root/.slicerrc.py
+
+COPY --from=rosmed/docker-ubuntu-22.04-ros2-slicer:ismr2024 /root/slicer/Slicer-SuperBuild-Release/Slicer-build /tmp/Slicer-root
+
+# Install licer DMRI extension
+# RUN ${pathtoS} --launch-module SlicerApp.extensionsmanager.extensionsmanagercli --install-extension SlicerDMRI ; 
+# RUN mkdir -p ${pathdep}/SlicerDMRI && \
+#     cd ${pathdep} && \
+#     wget https://slicer.kitware.com/midas3/download?items=576848 -O SlicerDMRI.s4ext && \
+#     ${pathtoS} --launch-module SlicerApp.extensionsmanager.extensionsmanagercli --install-extension ${pathdep}/SlicerDMRI.s4ext
+# RUN echo "import slicer\n\
+# import sys\n\
+# try:\n\
+#     em = slicer.app.extensionsManagerModel()\n\
+#     em.interactive = False\n\
+#     print('Installing SlicerDMRI...')\n\
+#     result = em.installExtensionFromServer('SlicerDMRI')\n\
+#     if result:\n\
+#         print('SlicerDMRI installed successfully')\n\
+#         sys.exit(0)\n\
+#     else:\n\
+#         print('Failed to install SlicerDMRI')\n\
+#         sys.exit(1)\n\
+# except Exception as e:\n\
+#     print('Error installing extension:', str(e))\n\
+#     sys.exit(1)\n\
+# finally:\n\
+#     slicer.app.quit()" > /tmp/install_extension.py && \
+#     xvfb-run -a /root/slicer/Slicer-5.6/Slicer \
+#     --no-splash \
+#     --no-main-window \
+#     --python-script /tmp/install_extension.py
+
+# RUN ls -la /root/slicer/Slicer-5.6/ && \
+#     find /root/slicer/Slicer-5.6 -name "SlicerConfig.cmake" -o -name "Slicer-config.cmake" | head -5
+
+# RUN cd ${pathdep} \
+#     && git clone https://github.com/SlicerDMRI/SlicerDMRI.git \
+#     && mkdir SlicerDMRI-build \
+#     && cd SlicerDMRI-build \
+#     && cmake -DCMAKE_BUILD_TYPE:STRING=Release \
+#              -DSlicer_DIR:PATH=/root/slicer/Slicer-5.6/Slicer-build \
+#              ../SlicerDMRI \
+#     && make -j$(nproc) \
+#     && cd inner-build \
+#     && make package \
+#     && mkdir -p /root/slicer/packages \
+#     && mv *.tar.gz /root/slicer/packages
+
+# RUN mkdir -p /root/slicer/modules \
+#     && cd /root/slicer/modules \
+#     && git clone https://github.com/SlicerDMRI/SlicerDMRI\
+#     && mkdir SlicerDMRI-build \
+#     && cd SlicerDMRI-build \
+#     && cmake -DCMAKE_BUILD_TYPE:STRING=Release -DSlicer_DIR:PATH=/root/slicer/Slicer-SuperBuild-Release/Slicer-build ../SlicerDMRI \
+#     && make -j4 \
+#     && cd inner-build \
+#     && make package \
+#     && mkdir -p /root/slicer/packages \
+#     && mv *.tar.gz /root/slicer/packages
+
+RUN mkdir -p /root/slicer/modules \
+    && cd /root/slicer/modules \
+    && git clone https://github.com/IGSIO/SlicerIGSIO\
+    && mkdir SlicerIGSIO-build \
+    && cd SlicerIGSIO-build \
+    && cmake -DCMAKE_BUILD_TYPE:STRING=Release -DSlicer_DIR:PATH=/root/slicer/Slicer-5.6 ../SlicerIGSIO \
+    && make -j4 \
+    && cd inner-build \
+    && make package \
+    && mkdir -p /root/slicer/packages \
+    && mv *.tar.gz /root/slicer/packages
+
+# RUN mkdir -p /root/.config/NA-MIC/Extensions-31382 \
+#     && cd /root/.config/NA-MIC/Extensions-31382 \
+#     && wget https://github.com/SlicerDMRI/SlicerDMRI/releases/latest/download/SlicerDMRI-linux-amd64.tar.gz \
+#     && tar xzf SlicerDMRI-linux-amd64.tar.gz 
+#     #|| echo "Pre-built package not available, using source install"
+
+## Mqke SLicerTMS a dependency
+
+# Create a custom script to start Slicer and maximize its window
+RUN echo '#!/bin/bash\n\
+mkdir -p /root/Documents\n\
+export DISPLAY=:1\n\
+${pathtoS} --no-splash \\\n\
+  --additional-module-paths ${pathdep}/SlicerTMS \\\n\
+  --additional-module-paths ${pathdep}/SlicerDMRI  \\\n\
+  --additional-module-paths /tmp/Slicer-root &\n\
+SLICER_PID=$!\n\
+# Give Slicer time to start\n\
+sleep 5\n\
+# Try to maximize window if xdotool finds it\n\
+xdotool search --name "3D Slicer" windowactivate windowsize 100% 100% 2>/dev/null || true\n\
+wait $SLICER_PID' > /usr/local/bin/start-slicer-maximized.sh \
+    && chmod +x /usr/local/bin/start-slicer-maximized.sh
+
+# # Update Supervisor configuration to use the custom script
+RUN echo '[program:slicer]' > /etc/supervisor/conf.d/slicer.conf \
+    && echo 'command=/usr/local/bin/start-slicer-maximized.sh' >> /etc/supervisor/conf.d/slicer.conf \
+    && echo 'environment=DISPLAY=":1.0",SLICER_VERSION="5.8.1"' >> /etc/supervisor/conf.d/slicer.conf \
+    && echo 'autostart=true' >> /etc/supervisor/conf.d/slicer.conf \
+    && echo 'autorestart=true' >> /etc/supervisor/conf.d/slicer.conf \
+    && echo 'stderr_logfile=/var/log/slicer.err.log' >> /etc/supervisor/conf.d/slicer.conf \
+    && echo 'stdout_logfile=/var/log/slicer.out.log' >> /etc/supervisor/conf.d/slicer.conf
+
+# ## Expose Ports
+#no vnc
+# EXPOSE 6080
+# #IGT Link
+# EXPOSE 18944
+# EXPOSE 18945
+
+# Start 
+# Fix the supervisor configuration placeholders
+# Fix the supervisor configuration placeholders
+# Create Slicer supervisor configuration
+RUN echo '[program:slicer]' > /etc/supervisor/conf.d/slicer.conf && \
+    echo 'command=/usr/local/bin/start-slicer-maximized.sh' >> /etc/supervisor/conf.d/slicer.conf && \
+    echo 'environment=DISPLAY=":1",SLICER_VERSION="5.8.1"' >> /etc/supervisor/conf.d/slicer.conf && \
+    echo 'autostart=true' >> /etc/supervisor/conf.d/slicer.conf && \
+    echo 'autorestart=true' >> /etc/supervisor/conf.d/slicer.conf && \
+    echo 'stderr_logfile=/var/log/slicer.err.log' >> /etc/supervisor/conf.d/slicer.conf && \
+    echo 'stdout_logfile=/var/log/slicer.out.log' >> /etc/supervisor/conf.d/slicer.conf
+
+# Fix the supervisor configuration placeholders
+RUN sed -i 's/%USER%/root/g' /etc/supervisor/conf.d/supervisord.conf && \
+    sed -i 's/%HOME%/\/root/g' /etc/supervisor/conf.d/supervisord.conf && \
+    sed -i 's/%PASSWORD%/password/g' /etc/supervisor/conf.d/supervisord.conf
+
+
+# COPY ${dockerpath}/installs.py /root/installs.py
+# # Install additional Python packages via Slicer's Python
+# RUN ${pathtoS} --python-script "/root/installs.py" --no-splash  ; exit 0
+
+
+
+# COPY ${dockerpath}/startup.sh /startup.sh
+# RUN chmod +x /startup.sh
+
+# # ENTRYPOINT ["/startup.sh"]
+# ENTRYPOINT ["/bin/bash"]

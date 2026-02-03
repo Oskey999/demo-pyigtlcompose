@@ -16,8 +16,56 @@ if module_path not in sys.path:
 slicer_module_paths = [
     '/opt/slicer/Slicer-5.8.1-linux-amd64/lib/Slicer-5.8.1/qt-scripted-modules',
     '/opt/slicer/Slicer-5.8.1-linux-amd64/TMS',
+    '/opt/slicer/Slicer-5.8.1-linux-amd64/IGT',
     '/tmp/Slicer-root'
 ]
+
+import qt
+factory = slicer.app.moduleManager().factoryManager()
+
+# Find and register all .py modules in the specified directories
+module_names = []
+for module_dir in slicer_module_paths:
+    if not os.path.isdir(module_dir):
+        print(f"Directory does not exist: {module_dir}")
+        continue
+    
+    print(f"Scanning directory: {module_dir}")
+    for filename in os.listdir(module_dir):
+        if filename.endswith('.py') and not filename.startswith('_'):
+            module_file_path = os.path.join(module_dir, filename)
+            module_name = os.path.splitext(filename)[0]
+            
+            try:
+                # Register the module using QFileInfo
+                factory.registerModule(qt.QFileInfo(module_file_path))
+                module_names.append(module_name)
+                print(f"Registered module: {module_name} from {module_file_path}")
+            except Exception as e:
+                print(f"Failed to register module {module_name}: {e}")
+
+# Now load all the registered modules
+if module_names:
+    try:
+        success = factory.loadModules(module_names)
+        if success:
+            print(f"Successfully loaded modules: {', '.join(module_names)}")
+        else:
+            print(f"Failed to load some modules from: {', '.join(module_names)}")
+    except Exception as e:
+        print(f"Error loading modules: {e}")
+else:
+    print("No modules found to load")
+
+
+print("Attempting to select SlicerTMS module...")
+try:
+    factory.registerModule(qt.QFileInfo('/opt/slicer/Slicer-5.8.1-linux-amd64/TMS/SlicerTMS.py'))
+    factory.loadModules(['SlicerTMS'])
+    slicer.util.mainWindow().moduleSelector().selectModule('SlicerTMS')
+    print("SlicerTMS module activated!")
+except Exception as e:
+    print(f"Could not activate SlicerTMS module: {e}")
 
 # config = ConfigParser()
 # config.read('/home/ubuntu/.config/slicer.org/Slicer.ini')

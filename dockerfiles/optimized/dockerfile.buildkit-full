@@ -1,0 +1,215 @@
+# syntax=docker/dockerfile:1.4
+
+#
+# Build stage: Compile 3D Slicer from source + modules
+#
+FROM ubuntu:22.04 AS slicer-builder
+
+# Install build dependencies
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,target=/var/lib/apt,sharing=locked \
+    apt-get update && \
+    apt-get install -y --no-install-recommends \
+        git \
+        subversion \
+        build-essential \
+        cmake \
+        cmake-curses-gui \
+        cmake-qt-gui \
+        qtmultimedia5-dev \
+        qttools5-dev \
+        libqt5xmlpatterns5-dev \
+        libqt5svg5-dev \
+        libqt5opengl5-dev \
+        qtwebengine5-dev \
+        qtscript5-dev \
+        qtbase5-private-dev \
+        libqt5x11extras5-dev \
+        libxt-dev \
+        libssl-dev \
+        ca-certificates \
+        ccache
+
+# Set up ccache for faster rebuilds
+ENV CCACHE_DIR=/cache/ccache
+ENV PATH="/usr/lib/ccache:${PATH}"
+
+# Clone Slicer source with shallow clone for faster download
+WORKDIR /root/slicer
+RUN --mount=type=cache,target=/root/.git \
+    git clone --depth 1 --branch v5.8.1 https://github.com/slicer/Slicer
+
+# Configure CMake
+RUN mkdir -p Slicer-SuperBuild-Release && \
+    cd Slicer-SuperBuild-Release && \
+    cmake \
+        -DCMAKE_BUILD_TYPE:STRING=Release \
+        -DSlicer_USE_SYSTEM_OpenSSL=ON \
+        -DCMAKE_C_COMPILER_LAUNCHER=ccache \
+        -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
+        ../Slicer
+
+# Build with all available cores using cache mount for ccache
+WORKDIR /root/slicer/Slicer-SuperBuild-Release
+RUN --mount=type=cache,target=/cache/ccache \
+    make -j$(nproc)
+
+# Package Slicer
+RUN cd Slicer-build && \
+    make package && \
+    mkdir -p /root/slicer/packages && \
+    mv *.tar.gz /root/slicer/packages/
+
+#
+# Build Slicer modules
+#
+WORKDIR /root/slicer
+
+# Create modules directory
+RUN mkdir -p /root/slicer/modules
+
+#
+# SlicerOpenIGTLink
+#
+RUN cd /root/slicer/modules && \
+    git clone https://github.com/openigtlink/SlicerOpenIGTLink && \
+    mkdir SlicerOpenIGTLink-build && \
+    cd SlicerOpenIGTLink-build && \
+    cmake \
+        -DCMAKE_BUILD_TYPE:STRING=Release \
+        -DSlicer_DIR:PATH=/root/slicer/Slicer-SuperBuild-Release/Slicer-build \
+        -DCMAKE_C_COMPILER_LAUNCHER=ccache \
+        -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
+        ../SlicerOpenIGTLink
+
+RUN --mount=type=cache,target=/cache/ccache \
+    cd /root/slicer/modules/SlicerOpenIGTLink-build && \
+    make -j$(nproc) && \
+    cd inner-build && \
+    make package && \
+    mv *.tar.gz /root/slicer/packages/
+
+#
+# SlicerIGSIO
+#
+RUN cd /root/slicer/modules && \
+    git clone https://github.com/IGSIO/SlicerIGSIO && \
+    mkdir SlicerIGSIO-build && \
+    cd SlicerIGSIO-build && \
+    cmake \
+        -DCMAKE_BUILD_TYPE:STRING=Release \
+        -DSlicer_DIR:PATH=/root/slicer/Slicer-SuperBuild-Release/Slicer-build \
+        -DCMAKE_C_COMPILER_LAUNCHER=ccache \
+        -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
+        ../SlicerIGSIO
+
+RUN --mount=type=cache,target=/cache/ccache \
+    cd /root/slicer/modules/SlicerIGSIO-build && \
+    make -j$(nproc) && \
+    cd inner-build && \
+    make package && \
+    mv *.tar.gz /root/slicer/packages/
+
+#
+# SlicerIGT
+#
+RUN cd /root/slicer/modules && \
+    git clone https://github.com/SlicerIGT/SlicerIGT && \
+    mkdir SlicerIGT-build && \
+    cd SlicerIGT-build && \
+    cmake \
+        -DCMAKE_BUILD_TYPE:STRING=Release \
+        -DSlicer_DIR:PATH=/root/slicer/Slicer-SuperBuild-Release/Slicer-build \
+        -DSlicerIGSIO_DIR:PATH=/root/slicer/modules/SlicerIGSIO-build/inner-build \
+        -DCMAKE_C_COMPILER_LAUNCHER=ccache \
+        -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
+        ../SlicerIGT
+
+RUN --mount=type=cache,target=/cache/ccache \
+    cd /root/slicer/modules/SlicerIGT-build && \
+    make -j$(nproc) && \
+    make package && \
+    mv *.tar.gz /root/slicer/packages/
+
+#
+# SlicerParallelProcessing
+#
+RUN cd /root/slicer/modules && \
+    git clone https://github.com/pieper/SlicerParallelProcessing && \
+    mkdir SlicerParallelProcessing-build && \
+    cd SlicerParallelProcessing-build && \
+    cmake \
+        -DCMAKE_BUILD_TYPE:STRING=Release \
+        -DSlicer_DIR:PATH=/root/slicer/Slicer-SuperBuild-Release/Slicer-build \
+        -DCMAKE_C_COMPILER_LAUNCHER=ccache \
+        -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
+        ../SlicerParallelProcessing
+
+RUN --mount=type=cache,target=/cache/ccache \
+    cd /root/slicer/modules/SlicerParallelProcessing-build && \
+    make -j$(nproc) && \
+    make package && \
+    mv *.tar.gz /root/slicer/packages/
+
+#
+# SlicerDMRI
+#
+RUN cd /root/slicer/modules && \
+    git clone https://github.com/SlicerDMRI/SlicerDMRI && \
+    mkdir SlicerDMRI-build && \
+    cd SlicerDMRI-build && \
+    cmake \
+        -DCMAKE_BUILD_TYPE:STRING=Release \
+        -DSlicer_DIR:PATH=/root/slicer/Slicer-SuperBuild-Release/Slicer-build \
+        -DCMAKE_C_COMPILER_LAUNCHER=ccache \
+        -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
+        ../SlicerDMRI
+
+RUN --mount=type=cache,target=/cache/ccache \
+    cd /root/slicer/modules/SlicerDMRI-build && \
+    make -j$(nproc) && \
+    make package && \
+    mv *.tar.gz /root/slicer/packages/
+
+#
+# Final stage: Copy built Slicer + modules into the webtop image
+#
+FROM linuxserver/webtop:ubuntu-xfce
+
+# Install only runtime dependencies (not build tools)
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+        libqt5multimedia5 \
+        libqt5xmlpatterns5 \
+        libqt5svg5 \
+        libqt5webengine5 \
+        libqt5script5 \
+        libqt5x11extras5 \
+        libxt6 \
+        libssl3 \
+    && rm -rf /var/lib/apt/lists/* \
+    && apt-get clean
+
+# Copy all built packages from builder stage
+COPY --from=slicer-builder /root/slicer/packages /root/slicer/packages
+
+# Extract and set up Slicer
+RUN cd /root/slicer/packages && \
+    tar -xzf Slicer-*.tar.gz && \
+    SLICER_DIR=$(find /root/slicer/packages -maxdepth 1 -type d -name "Slicer-*" | head -1) && \
+    ln -s ${SLICER_DIR}/Slicer /usr/local/bin/Slicer
+
+# Install Slicer modules
+RUN cd /root/slicer/packages && \
+    for module in SlicerOpenIGTLink*.tar.gz SlicerIGSIO*.tar.gz SlicerIGT*.tar.gz \
+                  SlicerParallelProcessing*.tar.gz SlicerDMRI*.tar.gz; do \
+        if [ -f "$module" ]; then \
+            SLICER_DIR=$(find /root/slicer/packages -maxdepth 1 -type d -name "Slicer-*" | head -1) && \
+            tar -xzf "$module" -C "${SLICER_DIR}" 2>/dev/null || true; \
+        fi \
+    done
+
+WORKDIR /root
+
+# Optional: Add Slicer to PATH
+ENV PATH="/root/slicer/packages/Slicer-*/bin:${PATH}"

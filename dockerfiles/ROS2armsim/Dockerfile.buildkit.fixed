@@ -196,3 +196,9 @@ ENV CCACHE_DIR=/tmp/ccache
 ## Add helpful message on login
 RUN echo 'echo "ROS2 MoveIt workspace ready at ~/ws_moveit"' >> /config/.bashrc \
     && echo 'echo "Run workspace-info.sh for more information"' >> /config/.bashrc
+
+#RUN inside opt/ws_moveit
+#source /opt/ros/jazzy/setup.bash
+#source /opt/ws_moveit/install/setup.bash   # if the build succeeded
+#ros2 launch moveit2_tutorials demo.launch.py
+

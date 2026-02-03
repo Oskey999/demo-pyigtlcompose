@@ -135,7 +135,7 @@ services:
   SlicerApp:
     build:
       context: .
-      dockerfile: dockerfiles/optimized/dockerfile.dockerfile.buildkit-full
+      dockerfile: dockerfiles/optimized/dockerfile.buildkit-full
     image: optimized
     container_name: optimized
     environment:

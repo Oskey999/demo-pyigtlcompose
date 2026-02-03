@@ -84,36 +84,60 @@ services:
     # devices:
     #   - /dev/dri:/dev/dri
 
-  Amalgui:
-    build:
-      context: .
-      dockerfile: dockerfiles/amalgui/dockerfile
-    image: amalgui
-    container_name: amalgui
-    environment:
-      - PUID=1000
-      - PGID=1000
-      - TZ=Etc/UTC
-      - DEBUG=1
-      - LOG_LEVEL=DEBUG
-    # volumes:
-    #   - /path/to/data:/config
-    ports:
-      - 3002:3000
-      - 3003:3001
-    shm_size: "1gb"
-    stdin_open: true
-    tty: true
-    restart: always
-    networks:
-      - tms-network
+  # Amalgui:
+  #   build:
+  #     context: .
+  #     dockerfile: dockerfiles/amalgui/dockerfile
+  #   image: amalgui
+  #   container_name: amalgui
+  #   environment:
+  #     - PUID=1000
+  #     - PGID=1000
+  #     - TZ=Etc/UTC
+  #     - DEBUG=1
+  #     - LOG_LEVEL=DEBUG
+  #   # volumes:
+  #   #   - /path/to/data:/config
+  #   ports:
+  #     - 3002:3000
+  #     - 3003:3001
+  #   shm_size: "1gb"
+  #   stdin_open: true
+  #   tty: true
+  #   restart: always
+  #   networks:
+  #     - tms-network
   
-  Amalguicloud:
+  # Amalguicloud:
+  #   build:
+  #     context: .
+  #     dockerfile: dockerfiles/amalgui/dockerfile
+  #   image: amalguicloud
+  #   container_name: amalguicloud
+  #   environment:
+  #     - PUID=1000
+  #     - PGID=1000
+  #     - TZ=Etc/UTC
+  #     - DEBUG=1
+  #     - LOG_LEVEL=DEBUG
+  #   # volumes:
+  #   #   - /path/to/data:/config
+  #   ports:
+  #     - 3002:3000
+  #     - 3003:3001
+  #   shm_size: "1gb"
+  #   stdin_open: true
+  #   tty: true
+  #   restart: always
+  #   networks:
+  #     - tms-network
+
+  SlicerApp:
     build:
       context: .
-      dockerfile: dockerfiles/amalgui/dockerfile
-    image: amalguicloud
-    container_name: amalguicloud
+      dockerfile: dockerfiles/optimized/dockerfile.dockerfile.buildkit-full
+    image: optimized
+    container_name: optimized
     environment:
       - PUID=1000
       - PGID=1000

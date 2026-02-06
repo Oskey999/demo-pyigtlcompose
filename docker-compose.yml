@@ -138,12 +138,16 @@ services:
       dockerfile: dockerfiles/optimized/dockerfile.buildkit-full
     image: optimized
     container_name: optimized
+    user: root 
     environment:
       - PUID=1000
       - PGID=1000
       - TZ=Etc/UTC
       - DEBUG=1
       - LOG_LEVEL=DEBUG
+      - TMS_SERVER_HOST=tmsserver
+      - TMS_SERVER_PORT_1=18944
+      - TMS_SERVER_PORT_2=18945
     # volumes:
     #   - /path/to/data:/config
     ports:
@@ -153,6 +157,8 @@ services:
     stdin_open: true
     tty: true
     restart: always
+    depends_on:
+      - tmsserver
     networks:
       - tms-network
 
@@ -178,4 +184,3 @@ networks:
     ipam:
       config:
         - subnet: 172.20.0.0/16
-

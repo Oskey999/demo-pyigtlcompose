@@ -18,10 +18,10 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
         cmake-qt-gui \
         qtmultimedia5-dev \
         qttools5-dev \
-        libqt5xmlpatterns5-dev \
+        libqt5xmlpatterns5-dev \ 
         libqt5svg5-dev \
         libqt5opengl5-dev \
-        qtwebengine5-dev \
+        qtwebengine5-dev \ 
         qtscript5-dev \
         qtbase5-private-dev \
         libqt5x11extras5-dev \
@@ -67,89 +67,66 @@ WORKDIR /root/slicer
 
 # Create modules directory
 RUN mkdir -p /root/slicer/modules
+RUN mkdir -p /root/slicer/packages
 
 #
 # SlicerOpenIGTLink
 #
-RUN cd /root/slicer/modules && \
-    git clone https://github.com/openigtlink/SlicerOpenIGTLink && \
-    mkdir SlicerOpenIGTLink-build && \
-    cd SlicerOpenIGTLink-build && \
-    cmake \
-        -DCMAKE_BUILD_TYPE:STRING=Release \
-        -DSlicer_DIR:PATH=/root/slicer/Slicer-SuperBuild-Release/Slicer-build \
-        -DCMAKE_C_COMPILER_LAUNCHER=ccache \
-        -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
-        ../SlicerOpenIGTLink
-
-RUN --mount=type=cache,target=/cache/ccache \
-    cd /root/slicer/modules/SlicerOpenIGTLink-build && \
-    make -j$(nproc) && \
-    cd inner-build && \
-    make package && \
-    mv *.tar.gz /root/slicer/packages/
+RUN mkdir -p /root/slicer/modules \
+    && cd /root/slicer/modules \
+    && git clone https://github.com/openigtlink/SlicerOpenIGTLink \
+    && mkdir SlicerOpenIGTLink-build \
+    && cd SlicerOpenIGTLink-build \
+    && cmake -DCMAKE_BUILD_TYPE:STRING=Release -DSlicer_DIR:PATH=/root/slicer/Slicer-SuperBuild-Release/Slicer-build ../SlicerOpenIGTLink \
+    && make -j4 \
+    && cd inner-build \
+    && make package \
+    && mv *.tar.gz /root/slicer/packages
 
 #
 # SlicerIGSIO
 #
-RUN cd /root/slicer/modules && \
-    git clone https://github.com/IGSIO/SlicerIGSIO && \
-    mkdir SlicerIGSIO-build && \
-    cd SlicerIGSIO-build && \
-    cmake \
-        -DCMAKE_BUILD_TYPE:STRING=Release \
-        -DSlicer_DIR:PATH=/root/slicer/Slicer-SuperBuild-Release/Slicer-build \
-        -DCMAKE_C_COMPILER_LAUNCHER=ccache \
-        -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
-        ../SlicerIGSIO
+RUN mkdir -p /root/slicer/modules \
+    && cd /root/slicer/modules \
+    && git clone https://github.com/IGSIO/SlicerIGSIO\
+    && mkdir SlicerIGSIO-build \
+    && cd SlicerIGSIO-build \
+    && cmake -DCMAKE_BUILD_TYPE:STRING=Release -DSlicer_DIR:PATH=/root/slicer/Slicer-SuperBuild-Release/Slicer-build ../SlicerIGSIO \
+    && make -j4 \
+    && cd inner-build \
+    && make package \
+    && mkdir -p /root/slicer/packages \
+    && mv *.tar.gz /root/slicer/packages
 
-RUN --mount=type=cache,target=/cache/ccache \
-    cd /root/slicer/modules/SlicerIGSIO-build && \
-    make -j$(nproc) && \
-    cd inner-build && \
-    make package && \
-    mv *.tar.gz /root/slicer/packages/
 
 #
 # SlicerIGT
 #
-RUN cd /root/slicer/modules && \
-    git clone https://github.com/SlicerIGT/SlicerIGT && \
-    mkdir SlicerIGT-build && \
-    cd SlicerIGT-build && \
-    cmake \
-        -DCMAKE_BUILD_TYPE:STRING=Release \
-        -DSlicer_DIR:PATH=/root/slicer/Slicer-SuperBuild-Release/Slicer-build \
-        -DSlicerIGSIO_DIR:PATH=/root/slicer/modules/SlicerIGSIO-build/inner-build \
-        -DCMAKE_C_COMPILER_LAUNCHER=ccache \
-        -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
-        ../SlicerIGT
-
-RUN --mount=type=cache,target=/cache/ccache \
-    cd /root/slicer/modules/SlicerIGT-build && \
-    make -j$(nproc) && \
-    make package && \
-    mv *.tar.gz /root/slicer/packages/
+RUN mkdir -p /root/slicer/modules \
+    && cd /root/slicer/modules \
+    && git clone https://github.com/SlicerIGT/SlicerIGT\
+    && mkdir SlicerIGT-build \
+    && cd SlicerIGT-build \
+    && cmake -DCMAKE_BUILD_TYPE:STRING=Release -DSlicer_DIR:PATH=/root/slicer/Slicer-SuperBuild-Release/Slicer-build -DSlicerIGSIO_DIR:PATH=/root/slicer/modules/SlicerIGSIO-build/inner-build ../SlicerIGT \
+    && make -j4 \
+    && make package \ 
+    && mkdir -p /root/slicer/packages \
+    && mv *.tar.gz /root/slicer/packages
 
 #
-# SlicerParallelProcessing
+# Parallel Processing
 #
-RUN cd /root/slicer/modules && \
-    git clone https://github.com/pieper/SlicerParallelProcessing && \
-    mkdir SlicerParallelProcessing-build && \
-    cd SlicerParallelProcessing-build && \
-    cmake \
-        -DCMAKE_BUILD_TYPE:STRING=Release \
-        -DSlicer_DIR:PATH=/root/slicer/Slicer-SuperBuild-Release/Slicer-build \
-        -DCMAKE_C_COMPILER_LAUNCHER=ccache \
-        -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
-        ../SlicerParallelProcessing
-
-RUN --mount=type=cache,target=/cache/ccache \
-    cd /root/slicer/modules/SlicerParallelProcessing-build && \
-    make -j$(nproc) && \
-    make package && \
-    mv *.tar.gz /root/slicer/packages/
+RUN mkdir -p /root/slicer/modules \
+    && cd /root/slicer/modules \
+    && git clone https://github.com/pieper/SlicerParallelProcessing \
+    && mkdir SlicerParallelProcessing-build \
+    && cd SlicerParallelProcessing-build \
+    && cmake -DCMAKE_BUILD_TYPE:STRING=Release -DSlicer_DIR:PATH=/root/slicer/Slicer-SuperBuild-Release/Slicer-build ../SlicerParallelProcessing \
+    && make -j4 \
+    && make package \
+    && mkdir -p /root/slicer/packages \
+    && mv *.tar.gz /root/slicer/packages
+#     mv *.tar.gz /root/slicer/packages/
 
 #
 # SlicerDMRI
@@ -168,8 +145,28 @@ RUN cd /root/slicer/modules && \
 RUN --mount=type=cache,target=/cache/ccache \
     cd /root/slicer/modules/SlicerDMRI-build && \
     make -j$(nproc) && \
+    cd inner-build && \
     make package && \
     mv *.tar.gz /root/slicer/packages/
+
+# RUN cd /root/slicer/modules && \
+#     git clone https://github.com/lorifranke/SlicerTMS && \
+#     mkdir SlicerTMS-build && \
+#     cd SlicerTMS-build && \
+#     cmake \
+#         -DCMAKE_BUILD_TYPE:STRING=Release \
+#         -DSlicer_DIR:PATH=/root/slicer/Slicer-SuperBuild-Release/Slicer-build \
+#         ../SlicerTMS && \
+#     make -j$(nproc) && \
+#     make package && \
+#     mkdir -p /root/slicer/packages && \
+#     mv *.tar.gz /root/slicer/packages/
+
+# RUN --mount=type=cache,target=/cache/ccache \
+#     cd /root/slicer/modules/SlicerDMRI-build && \
+#     make -j$(nproc) && \
+#     make package && \
+#     mv *.tar.gz /root/slicer/packages/
 
 #
 # Final stage: Copy built Slicer + modules into the webtop image
@@ -177,19 +174,90 @@ RUN --mount=type=cache,target=/cache/ccache \
 FROM linuxserver/webtop:ubuntu-xfce
 
 # Install only runtime dependencies (not build tools)
-RUN apt-get update && \
-    apt-get install -y --no-install-recommends \
-        libqt5multimedia5 \
-        libqt5xmlpatterns5 \
-        libqt5svg5 \
-        libqt5webengine5 \
-        libqt5script5 \
-        libqt5x11extras5 \
-        libxt6 \
-        libssl3 \
-    && rm -rf /var/lib/apt/lists/* \
-    && apt-get clean
+# RUN apt-get update && \
+#     apt-get install -y --no-install-recommends \
+#         libqt5multimedia5 \
+#         libqt5xmlpatterns5 \
+#         libqt5svg5 \
+#         libqt5webengine5 \
+#         libqt5script5 \
+#         libqt5x11extras5 \
+#         libxt6 \
+#         libssl3 \
+#         libqt5xml5 \
+#         libqt5core5a \
+#         libqt5gui5 \
+#         libqt5widgets5 \
+#         libqt5network5 \
+#         libqt5opengl5 \
+#         libqt5svg5 \
+#         libqt5x11extras5 \
+#         libxml2-dev \
+#         libraw1394-dev \
+#         libncurses5-dev qtcreator \
+#         swig \
+#         sox \
+#         espeak \
+#         cmake-curses-gui \
+#         cmake-qt-gui \
+#         git \
+#         subversion \
+#         gfortran \
+#         libcppunit-dev \
+#         libqt5xmlpatterns5-dev \
+#         libbluetooth-dev  \
+#         qtchooser qt5-qmake qtbase5-dev-tools \
+#         qtbase5-dev \
+#         qtmultimedia5-dev \
+#         libqt5multimedia5 \
+#         libqt5multimedia5-plugins \
+#         libqt5multimediawidgets5 \
+#         libqt5opengl5 \
+#         libqt5svg5 \
+#         libqt5webkit5 \
+#         libqt5x11extras5 \
+#         libqt5xmlpatterns5 \
+#     && rm -rf /var/lib/apt/lists/* \
+#     && apt-get clean
 
+# RUN apt-get update && apt-get install -y \
+#     libglib2.0-0 \
+#     libgl1-mesa-glx \
+#     libglu1-mesa \
+#     libxrender1 \
+#     libxcursor1 \
+#     libxft2 \
+#     libxinerama1 \
+#     qt5-default \
+#     libqt5*5 \
+#     && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get install -y \
+    libglib2.0-0 \
+    libgl1 \
+    libglu1-mesa \
+    libxrender1 \
+    libxcursor1 \
+    libxft2 \
+    libxinerama1 \
+    qtbase5-dev \
+    qtmultimedia5-dev \
+    libqt5core5a \
+    libqt5gui5 \
+    libqt5widgets5 \
+    libqt5network5 \
+    libqt5opengl5 \
+    libqt5svg5 \
+    libqt5x11extras5 \
+    libqt5xml5 \
+    libqt5xmlpatterns5 \
+    libqt5multimedia5 \
+    libqt5multimediawidgets5 \
+    libqt5webkit5 \
+    libqt5webengine5 \
+    libqt5webenginewidgets5 \
+    libnsl2 \
+    && rm -rf /var/lib/apt/lists/*
+    
 # Copy all built packages from builder stage
 COPY --from=slicer-builder /root/slicer/packages /root/slicer/packages
 
@@ -200,16 +268,118 @@ RUN cd /root/slicer/packages && \
     ln -s ${SLICER_DIR}/Slicer /usr/local/bin/Slicer
 
 # Install Slicer modules
+# RUN cd /root/slicer/packages && \
+#     SLICER_DIR=$(find /root/slicer/packages -maxdepth 1 -type d -name "Slicer-*" | head -1) && \
+#     echo "=== Installing extensions to: ${SLICER_DIR} ===" && \
+#     echo "=== Available module packages: ===" && \
+#     ls -lh *.tar.gz && \
+#     for module in *SlicerOpenIGTLink*.tar.gz *SlicerIGSIO*.tar.gz *SlicerIGT*.tar.gz *ParallelProcessing*.tar.gz *SlicerDMRI*.tar.gz *SlicerTMS*.tar.gz; do \
+#         if [ -f "$module" ]; then \
+#             echo "=== Installing $module ===" && \
+#             tar -xzf "$module" -C "${SLICER_DIR}" --strip-components=1 && \
+#             echo "=== Successfully installed $module ===" ; \
+#         else \
+#             echo "=== WARNING: $module not found, skipping ===" ; \
+#         fi \
+#     done && \
+#     echo "=== Verifying installed modules ===" && \
+#     find "${SLICER_DIR}" -path "*/qt-loadable-modules/*" -name "*.so" | head -20 && \
+#     find "${SLICER_DIR}" -path "*/qt-scripted-modules/*" -name "*.py" | head -20
+
+COPY dockerfiles/optimized/slicer/install-extension.py /root/slicer
+COPY dockerfiles/optimized/slicer/install-module.py /root/slicer
+COPY dockerfiles/optimized/slicer/start-slicer-ros2.bash /root
+
+
+# Install Slicer modules (excluding SlicerTMS which is installed separately)
 RUN cd /root/slicer/packages && \
-    for module in SlicerOpenIGTLink*.tar.gz SlicerIGSIO*.tar.gz SlicerIGT*.tar.gz \
-                  SlicerParallelProcessing*.tar.gz SlicerDMRI*.tar.gz; do \
+    SLICER_DIR=$(find /root/slicer/packages -maxdepth 1 -type d -name "Slicer-*" | head -1) && \
+    echo "=== Installing extensions to: ${SLICER_DIR} ===" && \
+    for module in *SlicerOpenIGTLink*.tar.gz *SlicerIGSIO*.tar.gz *SlicerIGT*.tar.gz *ParallelProcessing*.tar.gz *SlicerDMRI*.tar.gz; do \
         if [ -f "$module" ]; then \
-            SLICER_DIR=$(find /root/slicer/packages -maxdepth 1 -type d -name "Slicer-*" | head -1) && \
-            tar -xzf "$module" -C "${SLICER_DIR}" 2>/dev/null || true; \
+            echo "=== Installing $module ===" && \
+            tar -xzf "$module" -C "${SLICER_DIR}" --strip-components=1 && \
+            echo "=== Successfully installed $module ===" ; \
         fi \
     done
 
+    #
+# SlicerTMS (Python scripted module)
+#
+COPY SlicerTMS /root/slicer/modules/SlicerTMS
+RUN cd /root/slicer/modules && \
+    SLICER_DIR=$(find /root/slicer/packages -maxdepth 1 -type d -name "Slicer-*" | head -1) && \
+    echo "=== Installing SlicerTMS directly (Python module) ===" && \
+    echo "=== Contents of SlicerTMS directory ===" && \
+    ls -la SlicerTMS/ && \
+    ls -la SlicerTMS/client/ && \
+    mkdir -p "${SLICER_DIR}"/lib/Slicer-5.8/qt-scripted-modules/SlicerTMS && \
+    # cp -r SlicerTMS/client/SlicerTMS/* "${SLICER_DIR}"/lib/Slicer-5.8/qt-scripted-modules/ && \
+    # copy module
+    cp -r SlicerTMS/client/SlicerTMS/* \
+   ${SLICER_DIR}/lib/Slicer-5.8/qt-scripted-modules/ && \
+
+# copy example data where loader expects it
+    mkdir -p "${SLICER_DIR}"/lib/Slicer-5.8/data && \
+    cp -r SlicerTMS/data/* \
+   ${SLICER_DIR}/lib/Slicer-5.8/
+
+RUN    echo "=== SlicerTMS installed ==="
+
+# # Debug: Check the structure of each extension package
+# RUN cd /root/slicer/packages && \
+#     for module in *SlicerOpenIGTLink*.tar.gz *SlicerIGSIO*.tar.gz *SlicerIGT*.tar.gz *ParallelProcessing*.tar.gz *SlicerDMRI*.tar.gz *SlicerTMS*.tar.gz; do \
+#         if [ -f "$module" ]; then \
+#             echo "=== Contents of $module ===" && \
+#             tar -tzf "$module" | head -30 ; \
+#         fi \
+#     done
+
+
+RUN cd /root \
+    && chmod 755 start-slicer-ros2.bash
+    #    && /bin/bash -c 'rm `find /root/slicer/packages/*.tar.gz`'
+
+# RUN /bin/bash -c "export EXTENSION_DIR=/root/slicer/packages; xvfb-run --auto-servernum /root/slicer/packages/Slicer-5.8.1-2025-03-02-linux-amd64/Slicer --no-main-window --no-splash --python-script /root/slicer/install-extension.py"
+
 WORKDIR /root
+
+USER root
+
+# RUN export TMS_SERVER_HOST=tmsserver && \    
+#     export TMS_SERVER_PORT_1=18944 && \  
+#     export TMS_SERVER_PORT_2=18945
+# COPY dockerfiles/optimized/slicer-with-env /usr/local/bin/slicer-with-env
+# RUN chmod +x /usr/local/bin/slicer-with-env
+# RUN /usr/local/bin/slicer-with-env
+
+ENV TMS_SERVER_HOST=tmsserver
+ENV TMS_SERVER_PORT_1=18944
+ENV TMS_SERVER_PORT_2=18945
+# Add this to your Dockerfile
+RUN mkdir -p /etc/cont-init.d
+COPY --chmod=755 <<EOF /etc/cont-init.d/99-set-env
+#!/usr/bin/with-contenv bash
+echo "export TMS_SERVER_HOST=${TMS_SERVER_HOST}" >> /etc/profile
+echo "export TMS_SERVER_PORT_1=${TMS_SERVER_PORT_1}" >> /etc/profile
+echo "export TMS_SERVER_PORT_2=${TMS_SERVER_PORT_2}" >> /etc/profile
+EOF
 
 # Optional: Add Slicer to PATH
 ENV PATH="/root/slicer/packages/Slicer-*/bin:${PATH}"
+
+#needs this to be run after it starts
+docker exec optimized bash -c 'cat > /usr/local/bin/slicer-with-env << "EOF"
+#!/bin/bash
+export TMS_SERVER_HOST=tmsserver
+export TMS_SERVER_PORT_1=18944
+export TMS_SERVER_PORT_2=18945
+exec Slicer "$@"
+EOF
+chmod +x /usr/local/bin/slicer-with-env'
+# PS C:\Users\oscar\OneDrive\Documents\GitHub\demo-pyigtlcompose> docker exec -it optimized /usr/local/bin/slicer-with-env
+
+## problems to fix ^this and also fails to load example data
+
+
+

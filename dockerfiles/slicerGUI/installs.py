@@ -4,6 +4,7 @@ import slicer
 import shutil
 import time
 from configparser import ConfigParser
+from slicer.util import VTKObservationMixin
 
 
 # Add SlicerTMS module path to Python path so Slicer can find and load it
@@ -20,52 +21,19 @@ slicer_module_paths = [
     '/tmp/Slicer-root'
 ]
 
-import qt
-factory = slicer.app.moduleManager().factoryManager()
+# Register module paths with Slicer
+factoryManager = slicer.app.moduleManager().factoryManager()
+for modulePath in slicer_module_paths:
+    if os.path.exists(modulePath):
+        try:
+            factoryManager.registerModule(slicer.util.qt.QFileInfo(modulePath))
+            print(f"Registered module path: {modulePath}")
+        except Exception as e:
+            print(f"Failed to register module path {modulePath}: {e}")
+    else:
+        print(f"Module path does not exist: {modulePath}")
 
-# Find and register all .py modules in the specified directories
-module_names = []
-for module_dir in slicer_module_paths:
-    if not os.path.isdir(module_dir):
-        print(f"Directory does not exist: {module_dir}")
-        continue
-    
-    print(f"Scanning directory: {module_dir}")
-    for filename in os.listdir(module_dir):
-        if filename.endswith('.py') and not filename.startswith('_'):
-            module_file_path = os.path.join(module_dir, filename)
-            module_name = os.path.splitext(filename)[0]
-            
-            try:
-                # Register the module using QFileInfo
-                factory.registerModule(qt.QFileInfo(module_file_path))
-                module_names.append(module_name)
-                print(f"Registered module: {module_name} from {module_file_path}")
-            except Exception as e:
-                print(f"Failed to register module {module_name}: {e}")
-
-# Now load all the registered modules
-if module_names:
-    try:
-        success = factory.loadModules(module_names)
-        if success:
-            print(f"Successfully loaded modules: {', '.join(module_names)}")
-        else:
-            print(f"Failed to load some modules from: {', '.join(module_names)}")
-    except Exception as e:
-        print(f"Error loading modules: {e}")
-else:
-    print("No modules found to load")
-
-
-print("Attempting to select SlicerTMS module...")
-try:
-    factory.registerModule(qt.QFileInfo('/opt/slicer/Slicer-5.8.1-linux-amd64/TMS/SlicerTMS.py'))
-    factory.loadModules(['SlicerTMS'])
-    slicer.util.mainWindow().moduleSelector().selectModule('SlicerTMS')
-    print("SlicerTMS module activated!")
-except Exception as e:
-    print(f"Could not activate SlicerTMS module: {e}")
+print("--------------------Attempting to load SlicerTMS module...--------------------------------")
 
 # config = ConfigParser()
 # config.read('/home/ubuntu/.config/slicer.org/Slicer.ini')
@@ -79,7 +47,7 @@ except Exception as e:
 #     config.write(configfile)
 # # Download and install Slicer from GitHub
 ## Install the extensions from the Slicer Extension Manager (excluding TMS which is local)
-extensionNames = ['SlicerOpenIGTLinkIF', 'OpenIGTLinkIF', 'SlicerDMRI', 'SlicerIGT', 'IGT', 'DMRI']
+extensionNames = [  'SlicerDMRI', 'SlicerIGT', 'IGT', 'DMRI']#'SlicerOpenIGTLinkIF','OpenIGTLinkIF',
 for extensionName in extensionNames:
     time.sleep(5)
     em = slicer.app.extensionsManagerModel()
@@ -87,6 +55,8 @@ for extensionName in extensionNames:
     restart = True  # This will cause Slicer to restart after each installation
     if not em.installExtensionFromServer(extensionName, restart):
         print(f"Failed to install {extensionName} extension")
+
+print("----------------All specified extensions have been processed.--------------------------")
 
 # archiveFilePath = os.path.join(slicer.app.temporaryPath, "main.zip")
 # outputDir = os.path.join(slicer.app.temporaryPath, "SlicerTMS")

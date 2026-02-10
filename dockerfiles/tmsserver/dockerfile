@@ -46,7 +46,8 @@ RUN pip install --no-cache-dir \
 # ...existing code...
 ARG spath=SlicerTMS
 COPY ${spath}/server /app/server
-COPY ${spath}/data /app/data
+# COPY ${spath}/data /app/data
+RUN mkdir -p /app/data
 COPY test_port_connectivity.py /app/test_port_connectivity.py
 COPY test_network_debug.sh /app/test_network_debug.sh
 WORKDIR /app

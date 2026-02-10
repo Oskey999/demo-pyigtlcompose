@@ -220,11 +220,14 @@ RUN cd /root/slicer/modules && \
     mkdir -p "${SLICER_DIR}"/lib/Slicer-5.8/qt-scripted-modules/SlicerTMS && \
     # copy module
     cp -r SlicerTMS/client/SlicerTMS/* \
-   ${SLICER_DIR}/lib/Slicer-5.8/qt-scripted-modules/ && \
-# copy example data where loader expects it
-    mkdir -p "${SLICER_DIR}"/lib/Slicer-5.8/qt-scripted-modules/data && \
-    cp -r SlicerTMS/data/* \
    ${SLICER_DIR}/lib/Slicer-5.8/qt-scripted-modules/ 
+# # copy example data where loader expects it
+#     mkdir -p "${SLICER_DIR}"/lib/Slicer-5.8/qt-scripted-modules/data && \
+#     cp -r SlicerTMS/data/* \
+#    ${SLICER_DIR}/lib/Slicer-5.8/qt-scripted-modules/ 
+# Instead, create a directory that will be volume-mounted:
+RUN mkdir -p ${SLICER_DIR}/lib/Slicer-5.8/qt-scripted-modules/data && \
+    echo "Data directory for SlicerTMS - use volume mount for actual data"
 
 RUN    echo "=== SlicerTMS installed ==="
 

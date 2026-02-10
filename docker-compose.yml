@@ -19,6 +19,8 @@ services:
     restart: unless-stopped
     networks:
       - tms-network
+    volumes:
+    - ./SlicerTMS/data:/app/data
       
     # healthcheck:
     #   test: ["CMD", "python3", "test_port_connectivity.py", "localhost", "18944", "18945"]
@@ -163,6 +165,8 @@ services:
       - tmsserver
     networks:
       - tms-network
+    volumes:
+    - ./SlicerTMS/data:/root/slicer/packages/Slicer-*/lib/Slicer-5.8/qt-scripted-modules/data
 
     
   # webtop:

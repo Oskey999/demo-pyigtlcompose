@@ -1,0 +1,79 @@
+## Docker container for simulating a robot arm using ROS2 and Gazebo
+## Based on ubuntu desktop with XFCE and web access
+
+## Based on tutorial here https://moveit.picknik.ai/main/doc/tutorials/getting_started/getting_started.html
+## Note: Using ROS 2 Jazzy (Ubuntu 24.04) instead of Humble (Ubuntu 22.04)
+
+# Use Ubuntu 24.04 with ROS 2 Jazzy
+FROM linuxserver/webtop:ubuntu-xfce
+
+ENV ROS_DISTRO=jazzy
+ARG dockerpath=dockerfiles/ROS2armsim
+
+## Web access port
+EXPOSE 3000
+
+## Install ROS2 Jazzy
+RUN apt-get update && apt-get install -y \
+    gnupg2 lsb-release curl software-properties-common locales \
+    && locale-gen en_US en_US.UTF-8 \
+    && update-locale LC_ALL=en_US.UTF-8 LANG=en_US.UTF-8 \
+    && export LANG=en_US.UTF-8 \
+    && curl -sSL https://raw.githubusercontent.com/ros/rosdistro/master/ros.key -o /usr/share/keyrings/ros-archive-keyring.gpg \
+    && echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/ros-archive-keyring.gpg] http://packages.ros.org/ros2/ubuntu $(lsb_release -cs) main" | tee /etc/apt/sources.list.d/ros2.list > /dev/null \
+    && apt-get update && apt-get install -y \
+    ros-${ROS_DISTRO}-desktop \
+    ros-${ROS_DISTRO}-moveit \
+    && rm -rf /var/lib/apt/lists/*
+
+## Load ROS2 environment and install dependencies
+RUN apt-get update && apt-get install -y \
+    python3-rosdep \
+    python3-colcon-common-extensions \
+    python3-colcon-mixin \
+    python3-vcstool \
+    git \
+    && rm -rf /var/lib/apt/lists/*
+
+## Initialize rosdep
+RUN rosdep init || true \
+    && rosdep update
+
+## Install Colcon mixins
+RUN colcon mixin add default https://raw.githubusercontent.com/colcon/colcon-mixin-repository/master/index.yaml || true \
+    && colcon mixin update default || true
+
+## Create workspace and clone tutorials
+## Note: Using jazzy branch for ROS 2 Jazzy
+RUN mkdir -p /root/ws_moveit/src \
+    && cd /root/ws_moveit/src \
+    # && git clone -b ${ROS_DISTRO} https://github.com/moveit/moveit2_tutorials
+    && git clone https://github.com/moveit/moveit2_tutorials
+
+
+## Import dependencies
+RUN cd /root/ws_moveit/src \
+    && vcs import --recursive < moveit2_tutorials/moveit2_tutorials.repos
+
+## Build Workspace
+RUN /bin/bash -c "source /opt/ros/${ROS_DISTRO}/setup.bash \
+    && cd /root/ws_moveit \
+    && apt-get update \
+    && rosdep install -r --from-paths . --ignore-src --rosdistro ${ROS_DISTRO} -y \
+    && colcon build --mixin release"
+
+## Set Up Workspace in bashrc for root user
+RUN echo 'source /opt/ros/'${ROS_DISTRO}'/setup.bash' >> /root/.bashrc \
+    && echo 'source /root/ws_moveit/install/setup.bash' >> /root/.bashrc
+
+## Set Up Workspace in bashrc for abc user (linuxserver default user)
+RUN echo 'source /opt/ros/'${ROS_DISTRO}'/setup.bash' >> /config/.bashrc \
+    && echo 'source /root/ws_moveit/install/setup.bash' >> /config/.bashrc
+
+## Create a script to start demo
+RUN echo '#!/bin/bash\n\
+source /opt/ros/'${ROS_DISTRO}'/setup.bash\n\
+source /root/ws_moveit/install/setup.bash\n\
+cd /root/ws_moveit/\n\
+ros2 launch moveit2_tutorials demo.launch.py' > /usr/local/bin/start-demo.sh \
+    && chmod +x /usr/local/bin/start-demo.sh

@@ -1,0 +1,282 @@
+# syntax=docker/dockerfile:1.4
+
+#
+# Build stage: Compile 3D Slicer from source + modules
+#
+FROM ubuntu:22.04 AS slicer-builder
+
+# Install build dependencies
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,target=/var/lib/apt,sharing=locked \
+    apt-get update && \
+    apt-get install -y --no-install-recommends \
+        git \
+        subversion \
+        build-essential \
+        cmake \
+        cmake-curses-gui \
+        cmake-qt-gui \
+        qtmultimedia5-dev \
+        qttools5-dev \
+        libqt5xmlpatterns5-dev \ 
+        libqt5svg5-dev \
+        libqt5opengl5-dev \
+        qtwebengine5-dev \ 
+        qtscript5-dev \
+        qtbase5-private-dev \
+        libqt5x11extras5-dev \
+        libxt-dev \
+        libssl-dev \
+        ca-certificates \
+        ccache
+
+# Set up ccache for faster rebuilds
+ENV CCACHE_DIR=/cache/ccache
+ENV PATH="/usr/lib/ccache:${PATH}"
+
+# Clone Slicer source with shallow clone for faster download
+WORKDIR /root/slicer
+RUN --mount=type=cache,target=/root/.git \
+    git clone --depth 1 --branch v5.8.1 https://github.com/slicer/Slicer
+
+# Configure CMake
+RUN mkdir -p Slicer-SuperBuild-Release && \
+    cd Slicer-SuperBuild-Release && \
+    cmake \
+        -DCMAKE_BUILD_TYPE:STRING=Release \
+        -DSlicer_USE_SYSTEM_OpenSSL=ON \
+        -DCMAKE_C_COMPILER_LAUNCHER=ccache \
+        -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
+        ../Slicer
+
+# Build with all available cores using cache mount for ccache
+WORKDIR /root/slicer/Slicer-SuperBuild-Release
+RUN --mount=type=cache,target=/cache/ccache \
+    make -j$(nproc)
+
+# Package Slicer
+RUN cd Slicer-build && \
+    make package && \
+    mkdir -p /root/slicer/packages && \
+    mv *.tar.gz /root/slicer/packages/
+
+#
+# Build Slicer modules
+#
+WORKDIR /root/slicer
+
+# Create modules directory
+RUN mkdir -p /root/slicer/modules
+RUN mkdir -p /root/slicer/packages
+
+#
+# SlicerOpenIGTLink
+#
+RUN mkdir -p /root/slicer/modules \
+    && cd /root/slicer/modules \
+    && git clone https://github.com/openigtlink/SlicerOpenIGTLink \
+    && mkdir SlicerOpenIGTLink-build \
+    && cd SlicerOpenIGTLink-build \
+    && cmake -DCMAKE_BUILD_TYPE:STRING=Release -DSlicer_DIR:PATH=/root/slicer/Slicer-SuperBuild-Release/Slicer-build ../SlicerOpenIGTLink \
+    && make -j4 \
+    && cd inner-build \
+    && make package \
+    && mv *.tar.gz /root/slicer/packages
+
+#
+# SlicerIGSIO
+#
+RUN mkdir -p /root/slicer/modules \
+    && cd /root/slicer/modules \
+    && git clone https://github.com/IGSIO/SlicerIGSIO\
+    && mkdir SlicerIGSIO-build \
+    && cd SlicerIGSIO-build \
+    && cmake -DCMAKE_BUILD_TYPE:STRING=Release -DSlicer_DIR:PATH=/root/slicer/Slicer-SuperBuild-Release/Slicer-build ../SlicerIGSIO \
+    && make -j4 \
+    && cd inner-build \
+    && make package \
+    && mkdir -p /root/slicer/packages \
+    && mv *.tar.gz /root/slicer/packages
+
+
+#
+# SlicerIGT
+#
+RUN mkdir -p /root/slicer/modules \
+    && cd /root/slicer/modules \
+    && git clone https://github.com/SlicerIGT/SlicerIGT\
+    && mkdir SlicerIGT-build \
+    && cd SlicerIGT-build \
+    && cmake -DCMAKE_BUILD_TYPE:STRING=Release -DSlicer_DIR:PATH=/root/slicer/Slicer-SuperBuild-Release/Slicer-build -DSlicerIGSIO_DIR:PATH=/root/slicer/modules/SlicerIGSIO-build/inner-build ../SlicerIGT \
+    && make -j4 \
+    && make package \ 
+    && mkdir -p /root/slicer/packages \
+    && mv *.tar.gz /root/slicer/packages
+
+#
+# Parallel Processing
+#
+RUN mkdir -p /root/slicer/modules \
+    && cd /root/slicer/modules \
+    && git clone https://github.com/pieper/SlicerParallelProcessing \
+    && mkdir SlicerParallelProcessing-build \
+    && cd SlicerParallelProcessing-build \
+    && cmake -DCMAKE_BUILD_TYPE:STRING=Release -DSlicer_DIR:PATH=/root/slicer/Slicer-SuperBuild-Release/Slicer-build ../SlicerParallelProcessing \
+    && make -j4 \
+    && make package \
+    && mkdir -p /root/slicer/packages \
+    && mv *.tar.gz /root/slicer/packages
+#     mv *.tar.gz /root/slicer/packages/
+
+#
+# SlicerDMRI
+#
+RUN cd /root/slicer/modules && \
+    git clone https://github.com/SlicerDMRI/SlicerDMRI && \
+    mkdir SlicerDMRI-build && \
+    cd SlicerDMRI-build && \
+    cmake \
+        -DCMAKE_BUILD_TYPE:STRING=Release \
+        -DSlicer_DIR:PATH=/root/slicer/Slicer-SuperBuild-Release/Slicer-build \
+        -DCMAKE_C_COMPILER_LAUNCHER=ccache \
+        -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
+        ../SlicerDMRI
+
+RUN --mount=type=cache,target=/cache/ccache \
+    cd /root/slicer/modules/SlicerDMRI-build && \
+    make -j$(nproc) && \
+    cd inner-build && \
+    make package && \
+    mv *.tar.gz /root/slicer/packages/
+
+#
+# Final stage: Copy built Slicer + modules into the webtop image
+#
+FROM linuxserver/webtop:ubuntu-xfce
+
+RUN apt-get update && apt-get install -y \
+    libglib2.0-0 \
+    libgl1 \
+    libglu1-mesa \
+    libxrender1 \
+    libxcursor1 \
+    libxft2 \
+    libxinerama1 \
+    qtbase5-dev \
+    qtmultimedia5-dev \
+    libqt5core5a \
+    libqt5gui5 \
+    libqt5widgets5 \
+    libqt5network5 \
+    libqt5opengl5 \
+    libqt5svg5 \
+    libqt5x11extras5 \
+    libqt5xml5 \
+    libqt5xmlpatterns5 \
+    libqt5multimedia5 \
+    libqt5multimediawidgets5 \
+    libqt5webkit5 \
+    libqt5webengine5 \
+    libqt5webenginewidgets5 \
+    libnsl2 \
+    && rm -rf /var/lib/apt/lists/*
+    
+# Copy all built packages from builder stage
+COPY --from=slicer-builder /root/slicer/packages /root/slicer/packages
+
+# Extract and set up Slicer
+RUN cd /root/slicer/packages && \
+    tar -xzf Slicer-*.tar.gz && \
+    SLICER_DIR=$(find /root/slicer/packages -maxdepth 1 -type d -name "Slicer-*" | head -1) && \
+    ln -s ${SLICER_DIR}/Slicer /usr/local/bin/Slicer
+
+COPY dockerfiles/optimized/slicer/install-extension.py /root/slicer
+COPY dockerfiles/optimized/slicer/install-module.py /root/slicer
+COPY dockerfiles/optimized/slicer/start-slicer-ros2.bash /root
+
+
+# Install Slicer modules (excluding SlicerTMS which is installed separately)
+RUN cd /root/slicer/packages && \
+    SLICER_DIR=$(find /root/slicer/packages -maxdepth 1 -type d -name "Slicer-*" | head -1) && \
+    echo "=== Installing extensions to: ${SLICER_DIR} ===" && \
+    for module in *SlicerOpenIGTLink*.tar.gz *SlicerIGSIO*.tar.gz *SlicerIGT*.tar.gz *ParallelProcessing*.tar.gz *SlicerDMRI*.tar.gz; do \
+        if [ -f "$module" ]; then \
+            echo "=== Installing $module ===" && \
+            tar -xzf "$module" -C "${SLICER_DIR}" --strip-components=1 && \
+            echo "=== Successfully installed $module ===" ; \
+        fi \
+    done
+
+#
+# SlicerTMS (Python scripted module) - FIXED VERSION
+#
+COPY SlicerTMS /root/slicer/modules/SlicerTMS
+RUN cd /root/slicer/modules && \
+    SLICER_DIR=$(find /root/slicer/packages -maxdepth 1 -type d -name "Slicer-*" | head -1) && \
+    echo "=== Installing SlicerTMS directly (Python module) ===" && \
+    echo "=== Contents of SlicerTMS directory ===" && \
+    ls -la SlicerTMS/ && \
+    ls -la SlicerTMS/client/ && \
+    ls -la SlicerTMS/data/ && \
+    echo "=== Creating module directory ===" && \
+    mkdir -p "${SLICER_DIR}"/lib/Slicer-5.8/qt-scripted-modules && \
+    echo "=== Copying module files (recursively to preserve subdirectories) ===" && \
+    cp -r SlicerTMS/client/SlicerTMS/* "${SLICER_DIR}"/lib/Slicer-5.8/qt-scripted-modules/ && \
+    echo "=== Creating data directory at lib/data (two levels up from qt-scripted-modules) ===" && \
+    mkdir -p "${SLICER_DIR}"/lib/data && \
+    echo "=== Copying data files ===" && \
+    cp -r SlicerTMS/data/* "${SLICER_DIR}"/lib/data/ && \
+    echo "=== Verifying installation ===" && \
+    echo "Module files:" && \
+    ls -la "${SLICER_DIR}"/lib/Slicer-5.8/qt-scripted-modules/ && \
+    echo "Data files:" && \
+    ls -la "${SLICER_DIR}"/lib/data/ && \
+    echo "=== SlicerTMS installation complete ==="
+
+RUN cd /root \
+    && chmod 755 start-slicer-ros2.bash
+
+WORKDIR /root
+
+USER root
+
+# ==============================================================================
+# SOLUTION: Multiple approaches to ensure environment variables are available
+# ==============================================================================
+
+# Set environment variables in Dockerfile (base level)
+ENV TMS_SERVER_HOST=tmsserver
+ENV TMS_SERVER_PORT_1=18944
+ENV TMS_SERVER_PORT_2=18945
+
+# Approach 1: Add to system-wide profile (loaded by login shells)
+RUN echo 'export TMS_SERVER_HOST="${TMS_SERVER_HOST:-tmsserver}"' >> /etc/profile && \
+    echo 'export TMS_SERVER_PORT_1="${TMS_SERVER_PORT_1:-18944}"' >> /etc/profile && \
+    echo 'export TMS_SERVER_PORT_2="${TMS_SERVER_PORT_2:-18945}"' >> /etc/profile
+
+# Approach 2: Add to bash.bashrc (loaded by non-login interactive shells)
+RUN echo 'export TMS_SERVER_HOST="${TMS_SERVER_HOST:-tmsserver}"' >> /etc/bash.bashrc && \
+    echo 'export TMS_SERVER_PORT_1="${TMS_SERVER_PORT_1:-18944}"' >> /etc/bash.bashrc && \
+    echo 'export TMS_SERVER_PORT_2="${TMS_SERVER_PORT_2:-18945}"' >> /etc/bash.bashrc
+
+# Approach 3: Add to environment file (loaded by pam_env)
+RUN echo "TMS_SERVER_HOST=tmsserver" >> /etc/environment && \
+    echo "TMS_SERVER_PORT_1=18944" >> /etc/environment && \
+    echo "TMS_SERVER_PORT_2=18945" >> /etc/environment
+
+# Approach 4: Create custom init script for LinuxServer s6-overlay
+RUN mkdir -p /etc/s6-overlay/s6-rc.d/user/contents.d && \
+    mkdir -p /etc/s6-overlay/s6-rc.d/init-tms-env && \
+    echo "oneshot" > /etc/s6-overlay/s6-rc.d/init-tms-env/type && \
+    echo "/etc/s6-overlay/s6-rc.d/init-tms-env/up" > /etc/s6-overlay/s6-rc.d/user/contents.d/init-tms-env
+
+# Copy the init script (create this file in dockerfiles/optimized/init-tms-env)
+COPY dockerfiles/optimized/init-tms-env /etc/s6-overlay/s6-rc.d/init-tms-env/up
+RUN chmod +x /etc/s6-overlay/s6-rc.d/init-tms-env/up
+
+# Approach 5: Add to XFCE autostart so GUI apps inherit the variables
+RUN mkdir -p /config/.config/autostart
+COPY dockerfiles/optimized/tms-env.desktop /config/.config/autostart/tms-env.desktop
+
+# Optional: Add Slicer to PATH
+ENV PATH="/root/slicer/packages/Slicer-*/bin:${PATH}"

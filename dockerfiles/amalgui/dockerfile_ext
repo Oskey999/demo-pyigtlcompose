@@ -1,0 +1,74 @@
+FROM amalguicloud
+
+#
+# SlicerOpenIGTLink
+#
+RUN mkdir -p /root/slicer/modules \
+    && cd /root/slicer/modules \
+    && git clone https://github.com/openigtlink/SlicerOpenIGTLink \
+    && mkdir SlicerOpenIGTLink-build \
+    && cd SlicerOpenIGTLink-build \
+    && cmake -DCMAKE_BUILD_TYPE:STRING=Release -DSlicer_DIR:PATH=/root/slicer/Slicer-SuperBuild-Release/Slicer-build ../SlicerOpenIGTLink \
+    && make -j4 \
+    && cd inner-build \
+    && make package \
+    && mv *.tar.gz /root/slicer/packages
+
+#
+# SlicerIGSIO
+#
+RUN mkdir -p /root/slicer/modules \
+    && cd /root/slicer/modules \
+    && git clone https://github.com/IGSIO/SlicerIGSIO\
+    && mkdir SlicerIGSIO-build \
+    && cd SlicerIGSIO-build \
+    && cmake -DCMAKE_BUILD_TYPE:STRING=Release -DSlicer_DIR:PATH=/root/slicer/Slicer-SuperBuild-Release/Slicer-build ../SlicerIGSIO \
+    && make -j4 \
+    && cd inner-build \
+    && make package \
+    && mkdir -p /root/slicer/packages \
+    && mv *.tar.gz /root/slicer/packages
+
+
+#
+# SlicerIGT
+#
+RUN mkdir -p /root/slicer/modules \
+    && cd /root/slicer/modules \
+    && git clone https://github.com/SlicerIGT/SlicerIGT\
+    && mkdir SlicerIGT-build \
+    && cd SlicerIGT-build \
+    && cmake -DCMAKE_BUILD_TYPE:STRING=Release -DSlicer_DIR:PATH=/root/slicer/Slicer-SuperBuild-Release/Slicer-build -DSlicerIGSIO_DIR:PATH=/root/slicer/modules/SlicerIGSIO-build/inner-build ../SlicerIGT \
+    && make -j4 \
+    && make package \
+    && mkdir -p /root/slicer/packages \
+    && mv *.tar.gz /root/slicer/packages
+
+#
+# Parallel Processing
+#
+RUN mkdir -p /root/slicer/modules \
+    && cd /root/slicer/modules \
+    && git clone https://github.com/pieper/SlicerParallelProcessing \
+    && mkdir SlicerParallelProcessing-build \
+    && cd SlicerParallelProcessing-build \
+    && cmake -DCMAKE_BUILD_TYPE:STRING=Release -DSlicer_DIR:PATH=/root/slicer/Slicer-SuperBuild-Release/Slicer-build ../SlicerParallelProcessing \
+    && make -j4 \
+    && make package \
+    && mkdir -p /root/slicer/packages \
+    && mv *.tar.gz /root/slicer/packages
+
+#
+# SlicerDMRI
+#
+RUN mkdir -p /root/slicer/modules \
+    && cd /root/slicer/modules \
+    && git clone https://github.com/SlicerDMRI/SlicerDMRI\
+    && mkdir SlicerDMRI-build \
+    && cd SlicerDMRI-build \
+    && cmake -DCMAKE_BUILD_TYPE:STRING=Release -DSlicer_DIR:PATH=/root/slicer/Slicer-SuperBuild-Release/Slicer-build ../SlicerDMRI \
+    && make -j4 \
+    # && cd inner-build \
+    && make package \
+    && mkdir -p /root/slicer/packages \
+    && mv *.tar.gz /root/slicer/packages

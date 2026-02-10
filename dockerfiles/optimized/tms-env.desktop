@@ -1,0 +1,7 @@
+[Desktop Entry]
+Type=Application
+Name=TMS Environment Variables
+Exec=bash -c "source /config/tms_env.sh"
+Hidden=false
+NoDisplay=true
+X-GNOME-Autostart-enabled=true

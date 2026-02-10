@@ -5,6 +5,8 @@ from slicer.ScriptedLoadableModule import *
 import numpy as np
 from requesthandlers import *
 from slicerserver.server import Server
+# from tms_env import get_tms_value
+
 
 secure = False
 

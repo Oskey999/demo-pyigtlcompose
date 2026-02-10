@@ -18,6 +18,10 @@ RUN apt-get update && apt-get install -y \
     libxcb-icccm4-dev libxcb-image0-dev \
     libqt5widgets5 libqt5network5 libqt5gui5 libqt5core5a libqt5dbus5 \
     xdotool \  
+    wget \
+    git \
+    cmake \
+    build-essential \
     python${python_VERSION} python3-pip \
     netcat iputils-ping curl telnet iproute2 net-tools dnsutils tcpdump vim \
     && rm -rf /var/lib/apt/lists/*
@@ -26,16 +30,45 @@ RUN apt-get update && apt-get install -y \
 ENV QT_QPA_PLATFORM_PLUGIN_PATH=/usr/lib/x86_64-linux-gnu/qt5/plugins/platforms 
 # RUN ln -s /usr/bin/python3 /usr/bin/python
 # # Copy your pre-downloaded Slicer directory to the container
-COPY dockerfiles/slicerGUI/Slicer /opt/slicer
+# COPY dockerfiles/slicerGUI/Slicer /opt/slicer
 # RUN ls /opt/slicer
 WORKDIR /opt/slicer
 # RUN tar -xvzf  /opt/slicer/slicer-${Slicer_VERSION}-linux-amd64.tar.gz 
-RUN tar -xvzf  /opt/slicer/slicer-${Slicer_VERSION}.tar.gz 
+# RUN tar -xvzf  /opt/slicer/slicer-${Slicer_VERSION}.tar.gz 
 # Download is optional if tar.gz already exists; skip if not needed
 # RUN cd /opt/slicer && \
 #     wget https://download.slicer.org/repository/download/Slicer/${Slicer_VERSION}/Slicer-${Slicer_VERSION}-linux-amd64.tar.gz && \
 #     tar -xzf Slicer-${Slicer_VERSION}-linux-amd64.tar.gz && \
 #     rm Slicer-${Slicer_VERSION}-linux-amd64.tar.gz
+
+# ARG Slicer_VERSION=5.8
+
+RUN cd /opt/slicer && \
+    wget -O Slicer-linux-amd64.tar.gz "https://download.slicer.org/download?version=${Slicer_VERSION}&os=linux&stability=release" && \
+    tar -xzf Slicer-linux-amd64.tar.gz && \
+    rm Slicer-linux-amd64.tar.gz
+# RUN apt-get install install cmake --upgrade
+# RUN apt-get update && apt-get install -y \
+#     ca-certificates \
+#     && rm -rf /var/lib/apt/lists/*
+
+# RUN wget -q https://github.com/Kitware/CMake/releases/download/v3.27.9/cmake-3.27.9-linux-x86_64.sh \
+#     && chmod +x cmake-3.27.9-linux-x86_64.sh \
+#     && ./cmake-3.27.9-linux-x86_64.sh --skip-license --prefix=/usr/local \
+#     && rm cmake-3.27.9-linux-x86_64.sh
+# WORKDIR /opt
+# RUN git clone --branch v5.6.2 https://github.com/Slicer/Slicer.git
+
+# RUN mkdir /opt/Slicer-SuperBuild-Release
+# WORKDIR /opt/Slicer-SuperBuild-Release
+
+# RUN cmake \
+#   -DCMAKE_BUILD_TYPE=Release \
+#   -DSlicer_USE_SYSTEM_QT=OFF \
+#   -DSlicer_USE_SYSTEM_OpenSSL=ON \
+#   ../Slicer/SuperBuild
+
+# RUN make -j$(nproc)
 WORKDIR /root
 # # Set the necessary environment variables for Slicer
 ENV SLICER_HOME=/opt/slicer
@@ -48,16 +81,19 @@ ENV PATH="${SLICER_HOME}:$PATH"
 COPY dockerfiles/slicerGUI/slicerrc.py /root/.slicerrc.py
 COPY dockerfiles/slicerGUI/installs.py /root/installs.py
 COPY dockerfiles/slicerGUI/testpyigtl.py /home/ubuntu/.config/slicer.org/testpyigtl.py
-COPY dockerfiles/slicerGUI/Slicer.ini /home/ubuntu/.config/slicer.org/Slicer.ini
+# COPY dockerfiles/slicerGUI/Slicer.ini /home/ubuntu/.config/slicer.org/Slicer.ini
 
 # # Map local directories to directories in the container
 VOLUME ["/root/Documents", "/images"]
 
-# # Create a custom script to start Slicer and maximize its window
+# Create a custom script to start Slicer and maximize its window
 RUN echo '#!/bin/bash\n\
 mkdir -p /root/Documents\n\
 export DISPLAY=:1\n\
-/opt/slicer/Slicer-5.8.1-linux-amd64/Slicer --no-splash &\n\
+/opt/slicer/Slicer-5.8.1-linux-amd64/Slicer --no-splash \\\n\
+  --additional-module-paths /opt/slicer/Slicer-5.8.1-linux-amd64/TMS/SlicerTMS \\\n\
+  --additional-module-paths /opt/slicer/Slicer-5.8.1-linux-amd64/IGT \\\n\
+  --additional-module-paths /tmp/Slicer-root &\n\
 SLICER_PID=$!\n\
 # Give Slicer time to start\n\
 sleep 5\n\
@@ -135,6 +171,39 @@ COPY ${spath}/client/SlicerTMS /opt/slicer/Slicer-5.8.1-linux-amd64/TMS/SlicerTM
 
 # # Mount SlicerTMS as a volume for flexibility in docker-compose
 # VOLUME ["/opt/slicer/Slicer-5.8.1-linux-amd64/TMS/SlicerTMS"]
+
+# Attach SlicerIGsio module directory for openIGTLinkIF dependency
+
+# Attach openIGTLinkIF module directory due to install troubles
+# RUN apt-get update && apt-get install -y \
+#     ca-certificates \
+#     && rm -rf /var/lib/apt/lists/*
+
+# RUN wget -q https://github.com/Kitware/CMake/releases/download/v3.27.9/cmake-3.27.9-linux-x86_64.sh \
+#     && chmod +x cmake-3.27.9-linux-x86_64.sh \
+#     && ./cmake-3.27.9-linux-x86_64.sh --skip-license --prefix=/usr/local \
+#     && rm cmake-3.27.9-linux-x86_64.sh
+
+
+# WORKDIR /opt/slicer/Slicer-5.8.1-linux-amd64/IGTgit
+# RUN git clone https://github.com/SlicerIGT/SlicerIGT.git
+
+# RUN mkdir SlicerIGT-build
+# WORKDIR SlicerIGT-build
+
+# RUN cmake \
+#     -DCMAKE_BUILD_TYPE=Release \
+#     -DSlicer_DIR=/opt/slicer/Slicer-5.8.1-linux-amd64/Slicer \
+#     ../SlicerIGT \
+#  && make -j4 \
+#  && make package \ 
+# && mkdir -p /opt/slicer/Slicer-5.8.1-linux-amd64/IGT \
+# && mv *.tar.gz /opt/slicer/Slicer-5.8.1-linux-amd64/IGT/
+
+RUN /opt/slicer/Slicer-5.8.1-linux-amd64/Slicer \
+    --no-splash --no-main-window \
+    --python-code "import slicer; slicer.app.extensionsManagerModel().installExtensionFromName('SlicerIGT')"
+
 
 COPY test_port_connectivity.py /app/test_port_connectivity.py
 COPY test_network_debug.sh /app/test_network_debug.sh

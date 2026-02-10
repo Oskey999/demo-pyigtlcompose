@@ -149,88 +149,11 @@ RUN --mount=type=cache,target=/cache/ccache \
     make package && \
     mv *.tar.gz /root/slicer/packages/
 
-# RUN cd /root/slicer/modules && \
-#     git clone https://github.com/lorifranke/SlicerTMS && \
-#     mkdir SlicerTMS-build && \
-#     cd SlicerTMS-build && \
-#     cmake \
-#         -DCMAKE_BUILD_TYPE:STRING=Release \
-#         -DSlicer_DIR:PATH=/root/slicer/Slicer-SuperBuild-Release/Slicer-build \
-#         ../SlicerTMS && \
-#     make -j$(nproc) && \
-#     make package && \
-#     mkdir -p /root/slicer/packages && \
-#     mv *.tar.gz /root/slicer/packages/
-
-# RUN --mount=type=cache,target=/cache/ccache \
-#     cd /root/slicer/modules/SlicerDMRI-build && \
-#     make -j$(nproc) && \
-#     make package && \
-#     mv *.tar.gz /root/slicer/packages/
-
 #
 # Final stage: Copy built Slicer + modules into the webtop image
 #
 FROM linuxserver/webtop:ubuntu-xfce
 
-# Install only runtime dependencies (not build tools)
-# RUN apt-get update && \
-#     apt-get install -y --no-install-recommends \
-#         libqt5multimedia5 \
-#         libqt5xmlpatterns5 \
-#         libqt5svg5 \
-#         libqt5webengine5 \
-#         libqt5script5 \
-#         libqt5x11extras5 \
-#         libxt6 \
-#         libssl3 \
-#         libqt5xml5 \
-#         libqt5core5a \
-#         libqt5gui5 \
-#         libqt5widgets5 \
-#         libqt5network5 \
-#         libqt5opengl5 \
-#         libqt5svg5 \
-#         libqt5x11extras5 \
-#         libxml2-dev \
-#         libraw1394-dev \
-#         libncurses5-dev qtcreator \
-#         swig \
-#         sox \
-#         espeak \
-#         cmake-curses-gui \
-#         cmake-qt-gui \
-#         git \
-#         subversion \
-#         gfortran \
-#         libcppunit-dev \
-#         libqt5xmlpatterns5-dev \
-#         libbluetooth-dev  \
-#         qtchooser qt5-qmake qtbase5-dev-tools \
-#         qtbase5-dev \
-#         qtmultimedia5-dev \
-#         libqt5multimedia5 \
-#         libqt5multimedia5-plugins \
-#         libqt5multimediawidgets5 \
-#         libqt5opengl5 \
-#         libqt5svg5 \
-#         libqt5webkit5 \
-#         libqt5x11extras5 \
-#         libqt5xmlpatterns5 \
-#     && rm -rf /var/lib/apt/lists/* \
-#     && apt-get clean
-
-# RUN apt-get update && apt-get install -y \
-#     libglib2.0-0 \
-#     libgl1-mesa-glx \
-#     libglu1-mesa \
-#     libxrender1 \
-#     libxcursor1 \
-#     libxft2 \
-#     libxinerama1 \
-#     qt5-default \
-#     libqt5*5 \
-#     && rm -rf /var/lib/apt/lists/*
 RUN apt-get update && apt-get install -y \
     libglib2.0-0 \
     libgl1 \
@@ -267,25 +190,6 @@ RUN cd /root/slicer/packages && \
     SLICER_DIR=$(find /root/slicer/packages -maxdepth 1 -type d -name "Slicer-*" | head -1) && \
     ln -s ${SLICER_DIR}/Slicer /usr/local/bin/Slicer
 
-# Install Slicer modules
-# RUN cd /root/slicer/packages && \
-#     SLICER_DIR=$(find /root/slicer/packages -maxdepth 1 -type d -name "Slicer-*" | head -1) && \
-#     echo "=== Installing extensions to: ${SLICER_DIR} ===" && \
-#     echo "=== Available module packages: ===" && \
-#     ls -lh *.tar.gz && \
-#     for module in *SlicerOpenIGTLink*.tar.gz *SlicerIGSIO*.tar.gz *SlicerIGT*.tar.gz *ParallelProcessing*.tar.gz *SlicerDMRI*.tar.gz *SlicerTMS*.tar.gz; do \
-#         if [ -f "$module" ]; then \
-#             echo "=== Installing $module ===" && \
-#             tar -xzf "$module" -C "${SLICER_DIR}" --strip-components=1 && \
-#             echo "=== Successfully installed $module ===" ; \
-#         else \
-#             echo "=== WARNING: $module not found, skipping ===" ; \
-#         fi \
-#     done && \
-#     echo "=== Verifying installed modules ===" && \
-#     find "${SLICER_DIR}" -path "*/qt-loadable-modules/*" -name "*.so" | head -20 && \
-#     find "${SLICER_DIR}" -path "*/qt-scripted-modules/*" -name "*.py" | head -20
-
 COPY dockerfiles/optimized/slicer/install-extension.py /root/slicer
 COPY dockerfiles/optimized/slicer/install-module.py /root/slicer
 COPY dockerfiles/optimized/slicer/start-slicer-ros2.bash /root
@@ -303,8 +207,8 @@ RUN cd /root/slicer/packages && \
         fi \
     done
 
-    #
-# SlicerTMS (Python scripted module)
+#
+# SlicerTMS (Python scripted module) - FIXED VERSION
 #
 COPY SlicerTMS /root/slicer/modules/SlicerTMS
 RUN cd /root/slicer/modules && \
@@ -313,73 +217,66 @@ RUN cd /root/slicer/modules && \
     echo "=== Contents of SlicerTMS directory ===" && \
     ls -la SlicerTMS/ && \
     ls -la SlicerTMS/client/ && \
-    mkdir -p "${SLICER_DIR}"/lib/Slicer-5.8/qt-scripted-modules/SlicerTMS && \
-    # cp -r SlicerTMS/client/SlicerTMS/* "${SLICER_DIR}"/lib/Slicer-5.8/qt-scripted-modules/ && \
-    # copy module
-    cp -r SlicerTMS/client/SlicerTMS/* \
-   ${SLICER_DIR}/lib/Slicer-5.8/qt-scripted-modules/ && \
-
-# copy example data where loader expects it
-    mkdir -p "${SLICER_DIR}"/lib/Slicer-5.8/data && \
-    cp -r SlicerTMS/data/* \
-   ${SLICER_DIR}/lib/Slicer-5.8/
-
-RUN    echo "=== SlicerTMS installed ==="
-
-# # Debug: Check the structure of each extension package
-# RUN cd /root/slicer/packages && \
-#     for module in *SlicerOpenIGTLink*.tar.gz *SlicerIGSIO*.tar.gz *SlicerIGT*.tar.gz *ParallelProcessing*.tar.gz *SlicerDMRI*.tar.gz *SlicerTMS*.tar.gz; do \
-#         if [ -f "$module" ]; then \
-#             echo "=== Contents of $module ===" && \
-#             tar -tzf "$module" | head -30 ; \
-#         fi \
-#     done
-
+    ls -la SlicerTMS/data/ && \
+    echo "=== Creating module directory ===" && \
+    mkdir -p "${SLICER_DIR}"/lib/Slicer-5.8/qt-scripted-modules && \
+    echo "=== Copying module files (recursively to preserve subdirectories) ===" && \
+    cp -r SlicerTMS/client/SlicerTMS/* "${SLICER_DIR}"/lib/Slicer-5.8/qt-scripted-modules/ && \
+    echo "=== Creating data directory at lib/data (two levels up from qt-scripted-modules) ===" && \
+    mkdir -p "${SLICER_DIR}"/lib/data && \
+    echo "=== Copying data files ===" && \
+    cp -r SlicerTMS/data/* "${SLICER_DIR}"/lib/data/ && \
+    echo "=== Verifying installation ===" && \
+    echo "Module files:" && \
+    ls -la "${SLICER_DIR}"/lib/Slicer-5.8/qt-scripted-modules/ && \
+    echo "Data files:" && \
+    ls -la "${SLICER_DIR}"/lib/data/ && \
+    echo "=== SlicerTMS installation complete ==="
 
 RUN cd /root \
     && chmod 755 start-slicer-ros2.bash
-    #    && /bin/bash -c 'rm `find /root/slicer/packages/*.tar.gz`'
-
-# RUN /bin/bash -c "export EXTENSION_DIR=/root/slicer/packages; xvfb-run --auto-servernum /root/slicer/packages/Slicer-5.8.1-2025-03-02-linux-amd64/Slicer --no-main-window --no-splash --python-script /root/slicer/install-extension.py"
 
 WORKDIR /root
 
 USER root
 
-# RUN export TMS_SERVER_HOST=tmsserver && \    
-#     export TMS_SERVER_PORT_1=18944 && \  
-#     export TMS_SERVER_PORT_2=18945
-# COPY dockerfiles/optimized/slicer-with-env /usr/local/bin/slicer-with-env
-# RUN chmod +x /usr/local/bin/slicer-with-env
-# RUN /usr/local/bin/slicer-with-env
+# ==============================================================================
+# SOLUTION: Multiple approaches to ensure environment variables are available
+# ==============================================================================
 
+# Set environment variables in Dockerfile (base level)
 ENV TMS_SERVER_HOST=tmsserver
 ENV TMS_SERVER_PORT_1=18944
 ENV TMS_SERVER_PORT_2=18945
-# Add this to your Dockerfile
-RUN mkdir -p /etc/cont-init.d
-COPY --chmod=755 <<EOF /etc/cont-init.d/99-set-env
-#!/usr/bin/with-contenv bash
-echo "export TMS_SERVER_HOST=${TMS_SERVER_HOST}" >> /etc/profile
-echo "export TMS_SERVER_PORT_1=${TMS_SERVER_PORT_1}" >> /etc/profile
-echo "export TMS_SERVER_PORT_2=${TMS_SERVER_PORT_2}" >> /etc/profile
-EOF
+
+# Approach 1: Add to system-wide profile (loaded by login shells)
+RUN echo 'export TMS_SERVER_HOST="${TMS_SERVER_HOST:-tmsserver}"' >> /etc/profile && \
+    echo 'export TMS_SERVER_PORT_1="${TMS_SERVER_PORT_1:-18944}"' >> /etc/profile && \
+    echo 'export TMS_SERVER_PORT_2="${TMS_SERVER_PORT_2:-18945}"' >> /etc/profile
+
+# Approach 2: Add to bash.bashrc (loaded by non-login interactive shells)
+RUN echo 'export TMS_SERVER_HOST="${TMS_SERVER_HOST:-tmsserver}"' >> /etc/bash.bashrc && \
+    echo 'export TMS_SERVER_PORT_1="${TMS_SERVER_PORT_1:-18944}"' >> /etc/bash.bashrc && \
+    echo 'export TMS_SERVER_PORT_2="${TMS_SERVER_PORT_2:-18945}"' >> /etc/bash.bashrc
+
+# Approach 3: Add to environment file (loaded by pam_env)
+RUN echo "TMS_SERVER_HOST=tmsserver" >> /etc/environment && \
+    echo "TMS_SERVER_PORT_1=18944" >> /etc/environment && \
+    echo "TMS_SERVER_PORT_2=18945" >> /etc/environment
+
+# Approach 4: Create custom init script for LinuxServer s6-overlay
+RUN mkdir -p /etc/s6-overlay/s6-rc.d/user/contents.d && \
+    mkdir -p /etc/s6-overlay/s6-rc.d/init-tms-env && \
+    echo "oneshot" > /etc/s6-overlay/s6-rc.d/init-tms-env/type && \
+    echo "/etc/s6-overlay/s6-rc.d/init-tms-env/up" > /etc/s6-overlay/s6-rc.d/user/contents.d/init-tms-env
+
+# Copy the init script (create this file in dockerfiles/optimized/init-tms-env)
+COPY dockerfiles/optimized/init-tms-env /etc/s6-overlay/s6-rc.d/init-tms-env/up
+RUN chmod +x /etc/s6-overlay/s6-rc.d/init-tms-env/up
+
+# Approach 5: Add to XFCE autostart so GUI apps inherit the variables
+RUN mkdir -p /config/.config/autostart
+COPY dockerfiles/optimized/tms-env.desktop /config/.config/autostart/tms-env.desktop
 
 # Optional: Add Slicer to PATH
 ENV PATH="/root/slicer/packages/Slicer-*/bin:${PATH}"
-
-#needs this to be run after it starts
-docker exec optimized bash -c 'cat > /usr/local/bin/slicer-with-env << "EOF"
-#!/bin/bash
-export TMS_SERVER_HOST=tmsserver
-export TMS_SERVER_PORT_1=18944
-export TMS_SERVER_PORT_2=18945
-exec Slicer "$@"
-EOF
-chmod +x /usr/local/bin/slicer-with-env'
-# PS C:\Users\oscar\OneDrive\Documents\GitHub\demo-pyigtlcompose> docker exec -it optimized /usr/local/bin/slicer-with-env
-
-## problems to fix ^this and also fails to load example data
-
-
-

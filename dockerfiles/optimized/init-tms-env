@@ -1,0 +1,24 @@
+#!/command/with-contenv bash
+
+# This script runs during container initialization via s6-overlay
+# It ensures environment variables are available to all applications
+
+echo "export TMS_SERVER_HOST=${TMS_SERVER_HOST}" >> /config/.bashrc
+echo "export TMS_SERVER_PORT_1=${TMS_SERVER_PORT_1}" >> /config/.bashrc
+echo "export TMS_SERVER_PORT_2=${TMS_SERVER_PORT_2}" >> /config/.bashrc
+
+# Also write to a config file for Python to read
+mkdir -p /config
+cat > /config/tms_env.conf << EOF
+TMS_SERVER_HOST=${TMS_SERVER_HOST}
+TMS_SERVER_PORT_1=${TMS_SERVER_PORT_1}
+TMS_SERVER_PORT_2=${TMS_SERVER_PORT_2}
+EOF
+
+# Make environment variables available to desktop applications
+cat > /config/tms_env.sh << EOF
+export TMS_SERVER_HOST=${TMS_SERVER_HOST}
+export TMS_SERVER_PORT_1=${TMS_SERVER_PORT_1}
+export TMS_SERVER_PORT_2=${TMS_SERVER_PORT_2}
+EOF
+chmod +x /config/tms_env.sh

@@ -7,6 +7,10 @@ services:
       dockerfile: dockerfiles/tmsserver/Dockerfile
     image: tmsserver
     container_name: tmsserver
+    environment:
+       - TMS_SERVER_IFACE=${TMS_SERVER_IFACE:-eth0}
+       - DEBUG=1
+       - LOG_LEVEL=DEBUG
     ports:
       - "18944:18944"
       - "18945:18945"
@@ -15,9 +19,7 @@ services:
     restart: unless-stopped
     networks:
       - tms-network
-    environment:
-      - DEBUG=1
-      - LOG_LEVEL=DEBUG
+      
     # healthcheck:
     #   test: ["CMD", "python3", "test_port_connectivity.py", "localhost", "18944", "18945"]
     #   interval: 30s

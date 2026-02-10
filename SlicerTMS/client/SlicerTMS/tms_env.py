@@ -79,7 +79,8 @@ def get_tms_config(defaults: Optional[Dict[str, str]] = None) -> Dict[str, str]:
     fallback_defaults = {
         'TMS_SERVER_HOST': 'localhost',
         'TMS_SERVER_PORT_1': '18944',
-        'TMS_SERVER_PORT_2': '18945'
+        'TMS_SERVER_PORT_2': '18945',
+        'TMS_DATA_DIR': '/root/slicer/packages/Slicer-*/lib/Slicer-5.8/qt-scripted-modules/data'
     }
     
     # Use provided defaults or fallback
@@ -131,7 +132,7 @@ def print_debug_info():
     print("=" * 60)
     
     print("\n1. Direct os.environ:")
-    for key in ['TMS_SERVER_HOST', 'TMS_SERVER_PORT_1', 'TMS_SERVER_PORT_2']:
+    for key in ['TMS_SERVER_HOST', 'TMS_SERVER_PORT_1', 'TMS_SERVER_PORT_2', 'TMS_DATA_DIR']:
         value = os.environ.get(key)
         print(f"   {key}: {value if value else 'NOT SET'}")
     
@@ -159,7 +160,7 @@ def print_debug_info():
     
     print("\n5. Final resolved configuration:")
     config = get_tms_config()
-    for key in ['TMS_SERVER_HOST', 'TMS_SERVER_PORT_1', 'TMS_SERVER_PORT_2']:
+    for key in ['TMS_SERVER_HOST', 'TMS_SERVER_PORT_1', 'TMS_SERVER_PORT_2', 'TMS_DATA_DIR']:
         print(f"   {key}: {config[key]}")
     
     print("\n" + "=" * 60)

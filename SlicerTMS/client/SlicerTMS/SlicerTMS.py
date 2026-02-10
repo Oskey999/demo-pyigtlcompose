@@ -34,6 +34,7 @@ class SlicerTMSWidget(ScriptedLoadableModuleWidget):
         self.guiMessages = True
         self.consoleMessages = True
         self.showGMButton = None
+        self.selectedExample = None
         debug_print("SlicerTMSWidget.__init__ completed")
 
     def setup(self):
@@ -52,7 +53,7 @@ class SlicerTMSWidget(ScriptedLoadableModuleWidget):
 
             debug_print("-" * 40)
             debug_print("Setting up IGTL Text Connector...")
-            # IGTL connections
+            # IGTL connections for receiving text
             self.IGTLNode = slicer.vtkMRMLIGTLConnectorNode()
             slicer.mrmlScene.AddNode(self.IGTLNode)
             self.IGTLNode.SetName('TextConnector')
@@ -70,10 +71,28 @@ class SlicerTMSWidget(ScriptedLoadableModuleWidget):
             self.IGTLNode.PushOnConnect()
             debug_print("IGTL text connector started")
 
+            # Set up connector for sending commands to server
+            debug_print("-" * 40)
+            debug_print("Setting up IGTL Command Connector...")
+            self.IGTLCommandNode = slicer.vtkMRMLIGTLConnectorNode()
+            slicer.mrmlScene.AddNode(self.IGTLCommandNode)
+            self.IGTLCommandNode.SetName('CommandConnector')
+            self.IGTLCommandNode.SetTypeClient(tms_server_host, tms_server_port)
+            self.IGTLCommandNode.Start()
+            debug_print("IGTL command connector started")
+
             self.textNode = slicer.mrmlScene.AddNewNodeByClass('vtkMRMLTextNode', 'TextMessage')
             self.textNode.SetForceCreateStorageNode(True)
             observer = self.textNode.AddObserver(slicer.vtkMRMLTextNode.TextModifiedEvent, self.newText)
             debug_print(f"Text node created and observer added: {observer}")
+            
+            # Set up command text node for sending
+            self.commandTextNode = slicer.mrmlScene.AddNewNodeByClass('vtkMRMLTextNode', 'CommandMessage')
+            self.IGTLCommandNode.RegisterOutgoingMRMLNode(self.commandTextNode)
+            debug_print("Command text node created")
+            
+            # Setup initial UI with example selector
+            self.setupInitialUI()
             
             debug_print("=" * 80)
             debug_print("SlicerTMSWidget.setup completed successfully")
@@ -84,6 +103,53 @@ class SlicerTMSWidget(ScriptedLoadableModuleWidget):
             debug_print(traceback.format_exc())
             raise
 
+    def setupInitialUI(self):
+        """Setup the initial UI with example selection before server connection"""
+        debug_print("-" * 40)
+        debug_print("Setting up initial UI with example selector...")
+        
+        try:
+            # Example selection section
+            self.exampleSelectionButton = ctk.ctkCollapsibleButton()
+            self.exampleSelectionButton.text = "Example Selection"
+            self.layout.addWidget(self.exampleSelectionButton)
+            self.exampleFormLayout = qt.QFormLayout(self.exampleSelectionButton)
+            
+            # Get data directory path
+            data_dir = get_tms_value('TMS_DATA_DIR', '../data')
+            debug_print(f"Data directory: {data_dir}")
+            
+            # Scan for example folders
+            self.exampleComboBox = qt.QComboBox()
+            if os.path.exists(data_dir):
+                example_folders = [d for d in os.listdir(data_dir) 
+                                 if os.path.isdir(os.path.join(data_dir, d))]
+                example_folders.sort()
+                debug_print(f"Found {len(example_folders)} example folders: {example_folders}")
+                self.exampleComboBox.addItems(example_folders)
+            else:
+                debug_print(f"WARNING: Data directory not found: {data_dir}")
+                self.exampleComboBox.addItem("No examples found")
+            
+            self.exampleFormLayout.addRow("Select Example:", self.exampleComboBox)
+            
+            # Store the selected example
+            self.exampleComboBox.currentIndexChanged.connect(self.onExampleChanged)
+            if self.exampleComboBox.count > 0:
+                self.selectedExample = self.exampleComboBox.currentText
+                debug_print(f"Initial selected example: {self.selectedExample}")
+            
+            debug_print("Example selector created successfully")
+            
+        except Exception as e:
+            debug_print(f"ERROR in setupInitialUI: {e}")
+            debug_print(traceback.format_exc())
+
+    def onExampleChanged(self, index):
+        """Called when user selects a different example"""
+        self.selectedExample = self.exampleComboBox.currentText
+        debug_print(f"Example changed to: {self.selectedExample}")
+
     def newText(self, caller, event):
         debug_print("-" * 40)
         debug_print("newText callback triggered")
@@ -93,19 +159,53 @@ class SlicerTMSWidget(ScriptedLoadableModuleWidget):
         try:
             self.t = slicer.mrmlScene.GetNodeByID('vtkMRMLTextNode1')
             if self.t:
-                self.example_path = self.t.GetText()
-                debug_print(f"  Received text: {self.example_path}")
-                debug_print(f"  Setting up buttons with example path: {self.example_path}")
-                self.setupButtons(self.example_path)
+                received_text = self.t.GetText()
+                debug_print(f"  Received text from server: {received_text}")
+                
+                # Only setup buttons once (if not already done)
+                if not hasattr(self, 'buttonsSetup'):
+                    debug_print(f"  Setting up buttons for first time")
+                    self.setupButtons()
+                    self.buttonsSetup = True
             else:
                 debug_print("  ERROR: Could not find text node with ID 'vtkMRMLTextNode1'")
         except Exception as e:
             debug_print(f"  ERROR in newText: {e}")
             debug_print(traceback.format_exc())
 
-    def setupButtons(self, example_path):
+    def sendExampleToServer(self):
+        """Send the selected example path to the server"""
+        if not self.selectedExample:
+            debug_print("ERROR: No example selected")
+            return
+        
+        debug_print(f"Sending example to server: {self.selectedExample}")
+        
+        try:
+            # Send the example path as a command
+            command_text = f"LOAD_EXAMPLE:{self.selectedExample}"
+            self.commandTextNode.SetText(command_text)
+            self.IGTLCommandNode.PushNode(self.commandTextNode)
+            debug_print(f"Command sent: {command_text}")
+        except Exception as e:
+            debug_print(f"ERROR sending example to server: {e}")
+            debug_print(traceback.format_exc())
+
+    def loadExampleWithSelection(self):
+        """Load the selected example and notify the server"""
+        debug_print(f"Loading selected example: {self.selectedExample}")
+        
+        # Send example selection to server first
+        self.sendExampleToServer()
+        
+        # Load example in Slicer
+        data_dir = get_tms_value('TMS_DATA_DIR', '../data')
+        example_path = os.path.join(data_dir, self.selectedExample)
+        L.Loader.loadExample(example_path)
+
+    def setupButtons(self):
         debug_print("-" * 40)
-        debug_print(f"setupButtons called with path: {example_path}")
+        debug_print(f"setupButtons called")
         
         try:
             self.collapsibleButton = ctk.ctkCollapsibleButton()
@@ -121,8 +221,8 @@ class SlicerTMSWidget(ScriptedLoadableModuleWidget):
             self.formLayout.addRow(self.loadExampleButton)
             debug_print("  Created Load Example button")
             
-            # we need to pass the selected example from the command line with the example path:
-            self.loadExampleButton.clicked.connect(lambda: L.Loader.loadExample(self.example_path))
+            # Connect to the new function that uses selected example
+            self.loadExampleButton.clicked.connect(self.loadExampleWithSelection)
             debug_print("  Connected Load Example button click")
             
             debug_print("-" * 20)

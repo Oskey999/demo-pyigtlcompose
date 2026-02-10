@@ -246,21 +246,25 @@ USER root
 ENV TMS_SERVER_HOST=tmsserver
 ENV TMS_SERVER_PORT_1=18944
 ENV TMS_SERVER_PORT_2=18945
+ENV TMS_DATA_DIR=/root/slicer/packages/Slicer-*/lib/Slicer-5.8/qt-scripted-modules/data 
 
 # Approach 1: Add to system-wide profile (loaded by login shells)
 RUN echo 'export TMS_SERVER_HOST="${TMS_SERVER_HOST:-tmsserver}"' >> /etc/profile && \
     echo 'export TMS_SERVER_PORT_1="${TMS_SERVER_PORT_1:-18944}"' >> /etc/profile && \
-    echo 'export TMS_SERVER_PORT_2="${TMS_SERVER_PORT_2:-18945}"' >> /etc/profile
+    echo 'export TMS_SERVER_PORT_2="${TMS_SERVER_PORT_2:-18945}"' >> /etc/profile && \
+    echo 'export TMS_DATA_DIR="${TMS_DATA_DIR}"' >> /etc/profile
 
 # Approach 2: Add to bash.bashrc (loaded by non-login interactive shells)
 RUN echo 'export TMS_SERVER_HOST="${TMS_SERVER_HOST:-tmsserver}"' >> /etc/bash.bashrc && \
     echo 'export TMS_SERVER_PORT_1="${TMS_SERVER_PORT_1:-18944}"' >> /etc/bash.bashrc && \
-    echo 'export TMS_SERVER_PORT_2="${TMS_SERVER_PORT_2:-18945}"' >> /etc/bash.bashrc
+    echo 'export TMS_SERVER_PORT_2="${TMS_SERVER_PORT_2:-18945}"' >> /etc/bash.bashrc && \
+    echo 'export TMS_DATA_DIR="${TMS_DATA_DIR}"' >> /etc/bash.bashrc    
 
 # Approach 3: Add to environment file (loaded by pam_env)
 RUN echo "TMS_SERVER_HOST=tmsserver" >> /etc/environment && \
     echo "TMS_SERVER_PORT_1=18944" >> /etc/environment && \
-    echo "TMS_SERVER_PORT_2=18945" >> /etc/environment
+    echo "TMS_SERVER_PORT_2=18945" >> /etc/environment && \
+    echo "TMS_DATA_DIR=/root/slicer/packages/Slicer-*/lib/Slicer-5.8/qt-scripted-modules/data" >> /etc/environment
 
 # Approach 4: Create custom init script for LinuxServer s6-overlay
 RUN mkdir -p /etc/s6-overlay/s6-rc.d/user/contents.d && \

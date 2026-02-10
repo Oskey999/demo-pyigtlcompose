@@ -6,6 +6,7 @@
 echo "export TMS_SERVER_HOST=${TMS_SERVER_HOST}" >> /config/.bashrc
 echo "export TMS_SERVER_PORT_1=${TMS_SERVER_PORT_1}" >> /config/.bashrc
 echo "export TMS_SERVER_PORT_2=${TMS_SERVER_PORT_2}" >> /config/.bashrc
+echo "export TMS_DATA_DIR=${TMS_DATA_DIR}" >> /etc/bash.bashrc   
 
 # Also write to a config file for Python to read
 mkdir -p /config
@@ -13,6 +14,7 @@ cat > /config/tms_env.conf << EOF
 TMS_SERVER_HOST=${TMS_SERVER_HOST}
 TMS_SERVER_PORT_1=${TMS_SERVER_PORT_1}
 TMS_SERVER_PORT_2=${TMS_SERVER_PORT_2}
+TMS_DATA_DIR=${TMS_DATA_DIR}
 EOF
 
 # Make environment variables available to desktop applications
@@ -20,5 +22,6 @@ cat > /config/tms_env.sh << EOF
 export TMS_SERVER_HOST=${TMS_SERVER_HOST}
 export TMS_SERVER_PORT_1=${TMS_SERVER_PORT_1}
 export TMS_SERVER_PORT_2=${TMS_SERVER_PORT_2}
+export TMS_DATA_DIR=${TMS_DATA_DIR}
 EOF
 chmod +x /config/tms_env.sh

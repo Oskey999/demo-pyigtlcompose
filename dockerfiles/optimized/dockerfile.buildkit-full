@@ -132,7 +132,20 @@ RUN mkdir -p /root/slicer/modules \
 # SlicerDMRI
 #
 RUN cd /root/slicer/modules && \
-    git clone https://github.com/SlicerDMRI/SlicerDMRI && \
+    git clone https://github.com/SlicerDMRI/SlicerDMRI
+
+# Patch VTK_to_DICOMTract.cxx to replace CODE_DCM_* macros that were removed
+# in newer versions of DCMTK with their explicit DSRBasicCodedEntry equivalents.
+# DCMTK CID 7261 codes: 113211=Deterministic, 113212=Probabilistic,
+#                        113213=Global, 113217=Bootstrap
+RUN sed -i \
+    -e 's/CODE_DCM_Deterministic/DSRBasicCodedEntry("113211", "DCM", "Deterministic")/g' \
+    -e 's/CODE_DCM_Probabilistic/DSRBasicCodedEntry("113212", "DCM", "Probabilistic")/g' \
+    -e 's/CODE_DCM_Global/DSRBasicCodedEntry("113213", "DCM", "Global")/g' \
+    -e 's/CODE_DCM_Bootstrap/DSRBasicCodedEntry("113217", "DCM", "Bootstrap")/g' \
+    /root/slicer/modules/SlicerDMRI/Modules/Loadable/TractIO/TractIOCLI/VTK_to_DICOMTract.cxx
+
+RUN cd /root/slicer/modules && \
     mkdir SlicerDMRI-build && \
     cd SlicerDMRI-build && \
     cmake \
@@ -149,7 +162,107 @@ RUN --mount=type=cache,target=/cache/ccache \
     make package && \
     mv *.tar.gz /root/slicer/packages/
 
-#
+
+# #
+# # Additional ROS2 packages (dVRK)
+# #
+# RUN apt-get update && apt-get install -y \
+#     ros-jazzy-rosbag2 \
+#     ros-jazzy-rosbag2-storage \
+#     ros-jazzy-rosbag2-transport
+
+# RUN mkdir -p /root/ros2_ws/src \
+#     && mkdir -p /root/ros2_ws/src \
+#     && cd /root/ros2_ws/src \
+#     && git clone -b devel https://github.com/rosmed/slicer_ros2_module \
+#     && cd slicer_ros2_module/MRML \
+#     && sed -i '/rosbag2_interfaces\/srv\/Play/d' CMakeLists.txt \
+#     && sed -i '/rosbag2_interfaces\/srv\/SplitBagfile/d' CMakeLists.txt \
+#     && sed -i '/rosbag2_interfaces\/srv\/Stop/d' CMakeLists.txt \
+#     && cd /root/ros2_ws \
+#     && /bin/bash -c 'source /opt/ros/jazzy/setup.sh; colcon build --cmake-args -DSlicer_DIR:PATH=/root/slicer/Slicer-SuperBuild-Release/Slicer-build -DCMAKE_BUILD_TYPE=Release'
+
+
+# WORKDIR /root
+# RUN apt install -y python3-vcstool python3-colcon-common-extensions \
+#     && apt install -y python3-pykdl \
+#     && apt install -y libxml2-dev libraw1394-dev libncurses5-dev qtcreator swig sox espeak cmake-curses-gui cmake-qt-gui git subversion gfortran libcppunit-dev libqt5xmlpatterns5-dev libbluetooth-dev \
+#     && apt install -y ros-jazzy-joint-state-publisher* ros-jazzy-xacro
+
+# #WORKDIR /root
+# #RUN mkdir -p /root/ros2_ws/src \
+# #    && cd /root/ros2_ws/src \
+# #    && /bin/bash -c 'source /opt/ros/jazzy/setup.sh; vcs import --input https://raw.githubusercontent.com/jhu-dvrk/dvrk_robot_ros2/main/dvrk.vcs --recursive'
+
+# #
+# # Build SlicerROS2
+# #
+# WORKDIR /root
+# RUN mkdir -p /root/ros2_ws/src \
+#     && mkdir -p /root/ros2_ws/src \
+#     && cd /root/ros2_ws/src \
+#     #&& git clone https://github.com/jhu-cisst/ros2_cisst_msgs.git cisst_msgs \ # Installed as part of dVRK/ciasst
+#     #&& git clone https://github.com/jhu-saw/ros2_sensable_omni_model \
+#     && git clone -b devel https://github.com/rosmed/slicer_ros2_module \
+#     && cd /root/ros2_ws \
+#     && /bin/bash -c 'source /opt/ros/jazzy/setup.sh; colcon build --cmake-args -DSlicer_DIR:PATH=/root/slicer/Slicer-SuperBuild-Release/Slicer-build -DCMAKE_BUILD_TYPE=Release'
+
+# # #
+# # # Install 3D Slicer Extensions
+# # #
+# # WORKDIR /root
+# # COPY slicer/install-extension.py /root/slicer
+# # COPY slicer/install-module.py /root/slicer
+# # COPY slicer/start-slicer-ros2.bash /root
+# # WORKDIR /root
+# # RUN cd /root \
+# #     && chmod 755 start-slicer-ros2.bash 
+
+
+# # RUN /bin/bash -c "export EXTENSION_DIR=/root/slicer/packages; xvfb-run --auto-servernum /root/slicer/Slicer-SuperBuild-Release/Slicer-build/Slicer --no-main-window --no-splash --python-script /root/slicer/install-extension.py"
+
+# #
+# # Install 3D Slicer Modules
+# #
+
+# # SlicerROS2
+# WORKDIR /root
+# RUN /bin/bash -c "export MODULE_DIR=/root/ros2_ws/build/ROS2/lib/Slicer-5.6/qt-loadable-modules; xvfb-run --auto-servernum /root/slicer/Slicer-SuperBuild-Release/Slicer-build/Slicer --no-main-window --no-splash --python-script /root/slicer/install-module.py"
+
+# # Package SlicerROS2
+# # See https://github.com/rosmed/slicer_ros2_module/blob/main/release.md
+# WORKDIR /root/slicer/packages
+# RUN cd /root/slicer/packages \
+#     && pkg_name=`find Slicer-*.tar.gz |sed -e 's/.tar.gz//g'` \
+#     && tar zxvf $pkg_name.tar.gz \
+#     && cd /root/slicer/Slicer-SuperBuild-Release/Slicer-build \
+#     && cp vtkSlicerROS2Module* /root/slicer/packages/$pkg_name/ \
+#     && cp lib/Slicer-5.6/qt-loadable-modules/*ROS2* /root/slicer/packages/$pkg_name/lib/Slicer-5.6/qt-loadable-modules \
+#     && cd /root/slicer/packages \
+#     && find $pkg_name -name "*.so" -exec strip {} \; \
+#     && find $pkg_name -name "*.pyc" -exec rm {} \; \
+#     && mv $pkg_name $pkg_name-SlicerROS2-jazzy \
+#     && tar cf $pkg_name-SlicerROS2-jazzy.tar $pkg_name-SlicerROS2-jazzy \
+#     && gzip --best $pkg_name-SlicerROS2-jazzy.tar
+
+
+# #
+# # PLUS Toolkit
+# #
+# WORKDIR /root
+# RUN apt install -y libglvnd-dev libqt5x11extras5-dev qtdeclarative5-dev qml-module-qtquick*
+# WORKDIR /root
+# RUN mkdir -p /root/plus/ \
+#     && cd /root/plus \
+#     && git clone https://github.com/PlusToolkit/PlusBuild.git \
+#     && mkdir PlusBuild-bin \
+#     && cd PlusBuild-bin \
+#     && cmake ../PlusBuild -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=/root/plus/install -DPLUSBUILD_INSTALL_VTK=ON -DPLUSBUILD_INSTALL_ITK=ON \
+#     && make -j4 \
+#     && find . -name "*.o" -exec rm {} \; \
+#     && find . -name "*.d" -exec rm {} \;
+
+# #
 # Final stage: Copy built Slicer + modules into the webtop image
 #
 FROM linuxserver/webtop:ubuntu-xfce

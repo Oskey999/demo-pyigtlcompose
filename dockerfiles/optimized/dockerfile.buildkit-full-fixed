@@ -3,7 +3,7 @@
 #
 # Build stage: Compile 3D Slicer from source + modules
 #
-FROM ubuntu:22.04 AS slicer-builder
+FROM ubuntu:24.04 AS slicer-builder
 
 # Install build dependencies
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
@@ -150,11 +150,133 @@ RUN --mount=type=cache,target=/cache/ccache \
     mv *.tar.gz /root/slicer/packages/
 
 #
+# ROS2 dependencies for Slicer2ROS - separate layer for better caching
+#
+# First install basic tools needed to add ROS2 repository
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,target=/var/lib/apt,sharing=locked \
+    apt-get update && \
+    apt-get install -y --no-install-recommends \
+        curl \
+        gnupg2 \
+        lsb-release \
+        software-properties-common
+
+# Add ROS2 Jazzy repository (for Ubuntu 24.04 Noble)
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,target=/var/lib/apt,sharing=locked \
+    curl -sSL https://raw.githubusercontent.com/ros/rosdistro/master/ros.key -o /usr/share/keyrings/ros-archive-keyring.gpg && \
+    echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/ros-archive-keyring.gpg] http://packages.ros.org/ros2/ubuntu $(lsb_release -cs) main" | tee /etc/apt/sources.list.d/ros2.list > /dev/null && \
+    apt-get update && \
+    apt-get install -y --no-install-recommends \
+        ros-jazzy-ros-core \
+        ros-jazzy-rosbag2 \
+        ros-jazzy-rosbag2-storage \
+        ros-jazzy-rosbag2-transport \
+        ros-jazzy-kdl-parser \
+        ros-jazzy-urdf \
+        ros-jazzy-robot-state-publisher \
+        ros-jazzy-joint-state-publisher \
+        ros-jazzy-xacro \
+        ros-jazzy-tf2-ros \
+        ros-jazzy-tf2-geometry-msgs \
+        ros-jazzy-vision-msgs \
+        ros-jazzy-shape-msgs \
+        ros-jazzy-sensor-msgs \
+        ros-jazzy-geometry-msgs \
+        ros-jazzy-std-msgs \
+        ros-jazzy-moveit-msgs \
+        ros-jazzy-moveit-core \
+        ros-jazzy-moveit-ros-planning-interface \
+        python3-colcon-common-extensions \
+        python3-rosdep \
+        python3-vcstool
+
+# Initialize rosdep
+RUN rosdep init || true && \
+    rosdep update
+
+#
+# Build SlicerROS2 module
+#
+WORKDIR /root/ros2_ws
+
+# Clone required message packages (separate layer for better caching)
+RUN mkdir -p /root/ros2_ws/src && \
+    cd /root/ros2_ws/src && \
+    git clone https://github.com/jhu-cisst/ros2_cisst_msgs.git cisst_msgs
+
+# Clone slicer_ros2_module (separate layer for better caching)
+RUN cd /root/ros2_ws/src && \
+    git clone -b devel https://github.com/rosmed/slicer_ros2_module
+
+# Modify CMakeLists.txt to remove unavailable dependencies
+RUN cd /root/ros2_ws/src/slicer_ros2_module/MRML && \
+    sed -i '/rosbag2_interfaces\/srv\/Play/d' CMakeLists.txt && \
+    sed -i '/rosbag2_interfaces\/srv\/SplitBagfile/d' CMakeLists.txt && \
+    sed -i '/rosbag2_interfaces\/srv\/Stop/d' CMakeLists.txt
+
+# Patch all CMakeLists.txt files to remove object_recognition_msgs
+RUN cd /root/ros2_ws/src/slicer_ros2_module && \
+    find . -name "CMakeLists.txt" -exec sed -i '/find_package(object_recognition_msgs/d' {} \; && \
+    find . -name "CMakeLists.txt" -exec sed -i 's/object_recognition_msgs//g' {} \; && \
+    find . -name "CMakeLists.txt" -exec sed -i '/ObjectType/d' {} \; && \
+    if [ -f package.xml ]; then sed -i '/object_recognition_msgs/d' package.xml; fi && \
+    echo "=== Verification ===" && \
+    find . -name "CMakeLists.txt" -exec grep -l "object_recognition_msgs\|ObjectType" {} \; || echo "Clean"
+
+# Fix Python 3.12 compatibility - handle both ImportError and KeyError
+RUN cd /root/ros2_ws/src/slicer_ros2_module/MRML/CodeGeneration && \
+    cp ROS2_to_vtkObjects.py ROS2_to_vtkObjects.py.backup && \
+    python3 -c "content = open('ROS2_to_vtkObjects.py').read(); old = '    mod = importlib.import_module(f\"{ros_pkg}.msg\")'; new = '    try:\n        mod = importlib.import_module(f\"{ros_pkg}.msg\")\n    except (TypeError, ImportError, ModuleNotFoundError):\n        return {}, set(), []'; content = content.replace(old, new); old2 = '    message_attribute_map[ros_message_full_type],'; new2 = '    message_attribute_map.get(ros_message_full_type, {}),'; content = content.replace(old2, new2); open('ROS2_to_vtkObjects.py', 'w').write(content); print('Patched')"
+
+
+# Use rosdep to install any remaining dependencies
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,target=/var/lib/apt,sharing=locked \
+    cd /root/ros2_ws && \
+    apt-get update && \
+    rosdep install -r --from-paths src --ignore-src --rosdistro jazzy -y || true
+
+# Build SlicerROS2 with colcon using cache mount
+# Use --continue-on-error to build what we can even if some packages fail
+# Add -Wno-dev to suppress CMake warnings
+RUN --mount=type=cache,target=/root/ros2_ws/build \
+    --mount=type=cache,target=/root/ros2_ws/install \
+    --mount=type=cache,target=/root/ros2_ws/log \
+    cd /root/ros2_ws && \
+    /bin/bash -c 'source /opt/ros/jazzy/setup.sh && \
+        colcon build \
+        --packages-select slicer_ros2_module cisst_msgs \
+        --cmake-args \
+        -DSlicer_DIR:PATH=/root/slicer/Slicer-SuperBuild-Release/Slicer-build \
+        -DCMAKE_BUILD_TYPE=Release \
+        -DCMAKE_C_COMPILER_LAUNCHER=ccache \
+        -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
+        -Wno-dev'
+
+# Copy the built ROS2 module to a location we can package
+# Also copy the entire install directory for runtime dependencies
+RUN mkdir -p /root/slicer/ros2_module && \
+    mkdir -p /root/slicer/ros2_install && \
+    if [ -d /root/ros2_ws/install/slicer_ros2_module ]; then \
+        cp -r /root/ros2_ws/install/slicer_ros2_module/lib/Slicer-*/qt-loadable-modules/* /root/slicer/ros2_module/ 2>/dev/null || true; \
+    fi && \
+    if [ -d /root/ros2_ws/build/ROS2 ]; then \
+        cp -r /root/ros2_ws/build/ROS2/lib/Slicer-*/qt-loadable-modules/* /root/slicer/ros2_module/ 2>/dev/null || true; \
+    fi && \
+    cp -r /root/ros2_ws/install/* /root/slicer/ros2_install/ 2>/dev/null || true && \
+    echo "ROS2 module artifacts copied"
+
+#
 # Final stage: Copy built Slicer + modules into the webtop image
 #
 FROM linuxserver/webtop:ubuntu-xfce
 
-RUN apt-get update && apt-get install -y \
+# Install runtime dependencies including ROS2
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,target=/var/lib/apt,sharing=locked \
+    apt-get update && apt-get install -y \
     libglib2.0-0 \
     libgl1 \
     libglu1-mesa \
@@ -179,10 +301,48 @@ RUN apt-get update && apt-get install -y \
     libqt5webengine5 \
     libqt5webenginewidgets5 \
     libnsl2 \
-    && rm -rf /var/lib/apt/lists/*
+    curl \
+    gnupg2 \
+    lsb-release
+
+# Add ROS2 Jazzy repository in final stage (for Ubuntu 24.04 Noble)
+RUN curl -sSL https://raw.githubusercontent.com/ros/rosdistro/master/ros.key -o /usr/share/keyrings/ros-archive-keyring.gpg && \
+    echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/ros-archive-keyring.gpg] http://packages.ros.org/ros2/ubuntu $(lsb_release -cs) main" | tee /etc/apt/sources.list.d/ros2.list > /dev/null
+
+# Install ROS2 Jazzy runtime
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,target=/var/lib/apt,sharing=locked \
+    apt-get update && \
+    apt-get install -y --no-install-recommends \
+        ros-jazzy-ros-core \
+        ros-jazzy-rosbag2 \
+        ros-jazzy-rosbag2-storage \
+        ros-jazzy-rosbag2-transport \
+        ros-jazzy-kdl-parser \
+        ros-jazzy-urdf \
+        ros-jazzy-robot-state-publisher \
+        ros-jazzy-joint-state-publisher \
+        ros-jazzy-xacro \
+        ros-jazzy-tf2-ros \
+        ros-jazzy-tf2-geometry-msgs \
+        ros-jazzy-vision-msgs \
+        ros-jazzy-shape-msgs \
+        ros-jazzy-sensor-msgs \
+        ros-jazzy-geometry-msgs \
+        ros-jazzy-std-msgs \
+        ros-jazzy-moveit-msgs \
+        ros-jazzy-moveit-core \
+        ros-jazzy-moveit-ros-planning-interface && \
+    rm -rf /var/lib/apt/lists/*
     
 # Copy all built packages from builder stage
 COPY --from=slicer-builder /root/slicer/packages /root/slicer/packages
+
+# Copy ROS2 module build artifacts
+COPY --from=slicer-builder /root/slicer/ros2_module /root/slicer/ros2_module
+
+# Copy ROS2 workspace install directory (contains cisst_msgs and other dependencies)
+COPY --from=slicer-builder /root/slicer/ros2_install /root/ros2_ws/install
 
 # Extract and set up Slicer
 RUN cd /root/slicer/packages && \
@@ -206,6 +366,13 @@ RUN cd /root/slicer/packages && \
             echo "=== Successfully installed $module ===" ; \
         fi \
     done
+
+# Install SlicerROS2 module
+RUN SLICER_DIR=$(find /root/slicer/packages -maxdepth 1 -type d -name "Slicer-*" | head -1) && \
+    echo "=== Installing SlicerROS2 module ===" && \
+    mkdir -p "${SLICER_DIR}"/lib/Slicer-5.8/qt-loadable-modules && \
+    cp -r /root/slicer/ros2_module/* "${SLICER_DIR}"/lib/Slicer-5.8/qt-loadable-modules/ && \
+    echo "=== SlicerROS2 module installed ==="
 
     #
 # SlicerTMS (Python scripted module)
@@ -248,11 +415,22 @@ ENV TMS_SERVER_PORT_1=18944
 ENV TMS_SERVER_PORT_2=18945
 ENV TMS_DATA_DIR=/root/slicer/packages/Slicer-*/lib/Slicer-5.8/qt-scripted-modules/data 
 
+# ROS2 environment setup
+ENV ROS_DISTRO=jazzy
+ENV ROS_VERSION=2
+ENV ROS_PYTHON_VERSION=3
+
+# Source ROS2 in bash initialization
+RUN echo 'source /opt/ros/jazzy/setup.bash' >> /etc/bash.bashrc && \
+    echo '[ -f /root/ros2_ws/install/setup.bash ] && source /root/ros2_ws/install/setup.bash' >> /etc/bash.bashrc
+
 # Approach 1: Add to system-wide profile (loaded by login shells)
 RUN echo 'export TMS_SERVER_HOST="${TMS_SERVER_HOST:-tmsserver}"' >> /etc/profile && \
     echo 'export TMS_SERVER_PORT_1="${TMS_SERVER_PORT_1:-18944}"' >> /etc/profile && \
     echo 'export TMS_SERVER_PORT_2="${TMS_SERVER_PORT_2:-18945}"' >> /etc/profile && \
-    echo 'export TMS_DATA_DIR="${TMS_DATA_DIR}"' >> /etc/profile
+    echo 'export TMS_DATA_DIR="${TMS_DATA_DIR}"' >> /etc/profile && \
+    echo 'source /opt/ros/jazzy/setup.bash' >> /etc/profile && \
+    echo '[ -f /root/ros2_ws/install/setup.bash ] && source /root/ros2_ws/install/setup.bash' >> /etc/profile
 
 # Approach 2: Add to bash.bashrc (loaded by non-login interactive shells)
 RUN echo 'export TMS_SERVER_HOST="${TMS_SERVER_HOST:-tmsserver}"' >> /etc/bash.bashrc && \
@@ -264,7 +442,7 @@ RUN echo 'export TMS_SERVER_HOST="${TMS_SERVER_HOST:-tmsserver}"' >> /etc/bash.b
 RUN echo "TMS_SERVER_HOST=tmsserver" >> /etc/environment && \
     echo "TMS_SERVER_PORT_1=18944" >> /etc/environment && \
     echo "TMS_SERVER_PORT_2=18945" >> /etc/environment && \
-    echo "TMS_DATA_DIR=/root/slicer/packages/Slicer-*/lib/Slicer-5.8/qt-scripted-modules/data" >> /etc/environment
+    echo "TMS_DATA_DIR=/root/slicer/packages/Slicer-*/lib/Slicer-5.8/qt-scripted-modules/data" >> /etc/environment  
 
 # Approach 4: Create custom init script for LinuxServer s6-overlay
 RUN mkdir -p /etc/s6-overlay/s6-rc.d/user/contents.d && \

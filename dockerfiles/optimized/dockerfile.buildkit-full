@@ -5,6 +5,10 @@
 #
 FROM ubuntu:22.04 AS slicer-builder
 
+# Prevent interactive prompts during apt installs (e.g. timezone, geographic area)
+ENV DEBIAN_FRONTEND=noninteractive
+ENV TZ=UTC
+
 # Install build dependencies
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     --mount=type=cache,target=/var/lib/apt,sharing=locked \
@@ -29,6 +33,43 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
         libssl-dev \
         ca-certificates \
         ccache
+
+# Add ROS 2 Humble apt repository
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        curl \
+        gnupg \
+        lsb-release \
+    && curl -sSL https://raw.githubusercontent.com/ros/rosdistro/master/ros.key \
+       -o /usr/share/keyrings/ros-archive-keyring.gpg \
+    && echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/ros-archive-keyring.gpg] \
+       http://packages.ros.org/ros2/ubuntu $(lsb_release -cs) main" \
+       > /etc/apt/sources.list.d/ros2.list
+
+# Install ROS Humble desktop + build tools needed for SlicerROS2
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,target=/var/lib/apt,sharing=locked \
+    apt-get update && apt-get install -y --no-install-recommends \
+        ros-humble-desktop \
+        ros-humble-rosbag2 \
+        ros-humble-rosbag2-storage \
+        ros-humble-rosbag2-transport \
+        ros-humble-joint-state-publisher \
+        ros-humble-joint-state-publisher-gui \
+        ros-humble-xacro \
+        ros-humble-moveit-msgs \
+        ros-humble-object-recognition-msgs \
+        ros-humble-cv-bridge \
+        ros-humble-vision-opencv \
+        ros-humble-image-transport \
+        python3-colcon-common-extensions \
+        python3-vcstool \
+        python3-pykdl \
+        python3-rosdep \
+        libxml2-dev \
+        libraw1394-dev \
+        libncurses5-dev \
+        libcppunit-dev \
+        libbluetooth-dev
 
 # Set up ccache for faster rebuilds
 ENV CCACHE_DIR=/cache/ccache
@@ -163,109 +204,132 @@ RUN --mount=type=cache,target=/cache/ccache \
     mv *.tar.gz /root/slicer/packages/
 
 
-# #
-# # Additional ROS2 packages (dVRK)
-# #
-# RUN apt-get update && apt-get install -y \
-#     ros-jazzy-rosbag2 \
-#     ros-jazzy-rosbag2-storage \
-#     ros-jazzy-rosbag2-transport
+#
+# Build SlicerROS2 module - NOW ENABLED
+#
+WORKDIR /root
 
-# RUN mkdir -p /root/ros2_ws/src \
-#     && mkdir -p /root/ros2_ws/src \
-#     && cd /root/ros2_ws/src \
-#     && git clone -b devel https://github.com/rosmed/slicer_ros2_module \
-#     && cd slicer_ros2_module/MRML \
-#     && sed -i '/rosbag2_interfaces\/srv\/Play/d' CMakeLists.txt \
-#     && sed -i '/rosbag2_interfaces\/srv\/SplitBagfile/d' CMakeLists.txt \
-#     && sed -i '/rosbag2_interfaces\/srv\/Stop/d' CMakeLists.txt \
-#     && cd /root/ros2_ws \
-#     && /bin/bash -c 'source /opt/ros/jazzy/setup.sh; colcon build --cmake-args -DSlicer_DIR:PATH=/root/slicer/Slicer-SuperBuild-Release/Slicer-build -DCMAKE_BUILD_TYPE=Release'
+# Clone slicer_ros2_module plus source-only deps that have no ros-humble-* apt binary:
+#   - object_recognition_msgs: wg-perception, ros2 branch
+#   - ros2_cisst_msgs: jhu-cisst, needed by slicer_ros2_module on Humble
+#   - ros2_kortex: provides kortex_description package with Gen3 7DOF mesh files (.dae)
+#   - ros2_robotiq_gripper: provides robotiq_description package with 2F-85 mesh files (.dae)
+# The last two are required so Slicer can resolve package://kortex_description/...
+# and package://robotiq_description/... URIs in robot_description messages from rossim
+RUN mkdir -p /root/ros2_ws/src \
+    && cd /root/ros2_ws/src \
+    && git clone -b devel https://github.com/rosmed/slicer_ros2_module \
+    && git clone -b ros2 https://github.com/wg-perception/object_recognition_msgs \
+    && git clone https://github.com/jhu-cisst/ros2_cisst_msgs \
+    && git clone --depth 1 https://github.com/Kinovarobotics/ros2_kortex.git \
+    && git clone --depth 1 https://github.com/PickNikRobotics/ros2_robotiq_gripper.git
 
+# Fix for ROS 2 Humble: Remove rosbag2 service clients that don't exist in Humble
+# (Play, Stop, SplitBagFile are not available in ros-humble-rosbag2-interfaces)
+RUN cd /root/ros2_ws/src/slicer_ros2_module/MRML \
+    && sed -i '/rosbag2_interfaces\/srv\/Play/d' CMakeLists.txt \
+    && sed -i '/rosbag2_interfaces\/srv\/SplitBagfile/d' CMakeLists.txt \
+    && sed -i '/rosbag2_interfaces\/srv\/Stop/d' CMakeLists.txt
 
-# WORKDIR /root
-# RUN apt install -y python3-vcstool python3-colcon-common-extensions \
-#     && apt install -y python3-pykdl \
-#     && apt install -y libxml2-dev libraw1394-dev libncurses5-dev qtcreator swig sox espeak cmake-curses-gui cmake-qt-gui git subversion gfortran libcppunit-dev libqt5xmlpatterns5-dev libbluetooth-dev \
-#     && apt install -y ros-jazzy-joint-state-publisher* ros-jazzy-xacro
+# Run rosdep to install any remaining apt-resolvable dependencies.
+# --skip-keys skips simulation/hardware packages pulled in by ros2_kortex that
+# are not available in the standard ROS Humble apt repo and are not needed in
+# the Slicer container (it only needs the description/mesh packages, not the
+# full Gazebo/ros2-control/MoveIt simulation stack).
+RUN /bin/bash -c 'source /opt/ros/humble/setup.sh \
+    && rosdep init 2>/dev/null || true \
+    && rosdep update \
+    && cd /root/ros2_ws \
+    && rosdep install --from-paths src --ignore-src -r -y --rosdistro humble \
+        --skip-keys " \
+            ros_gz_bridge \
+            ros_gz_sim \
+            ros_gz_interfaces \
+            gz_ros2_control \
+            ign_ros2_control \
+            ros2_control \
+            ros2_controllers \
+            controller_interface \
+            hardware_interface \
+            joint_state_broadcaster \
+            moveit_ros_visualization \
+            moveit_ros_warehouse \
+            moveit_setup_assistant \
+            kortex_driver \
+            kortex_bringup \
+            kortex_moveit_config \
+            robotiq_controllers \
+            robotiq_driver \
+        " || true'
 
-# #WORKDIR /root
-# #RUN mkdir -p /root/ros2_ws/src \
-# #    && cd /root/ros2_ws/src \
-# #    && /bin/bash -c 'source /opt/ros/jazzy/setup.sh; vcs import --input https://raw.githubusercontent.com/jhu-dvrk/dvrk_robot_ros2/main/dvrk.vcs --recursive'
+# Build kortex_description and robotiq_description with colcon so their
+# share/ directories (meshes, URDFs) are installed and resolvable via
+# package:// URIs when Slicer receives robot_description from rossim.
+# These are description-only packages so the build is fast.
+RUN /bin/bash -c 'source /opt/ros/humble/setup.bash \
+    && cd /root/ros2_ws \
+    && colcon build \
+        --packages-select kortex_description robotiq_description \
+        --cmake-args -DCMAKE_BUILD_TYPE=Release \
+    && echo "Description packages built successfully" \
+    && echo "kortex_description .dae files: $(find install/kortex_description -name *.dae | wc -l)" \
+    && echo "robotiq_description .dae files: $(find install/robotiq_description -name *.dae | wc -l)"'
 
-# #
-# # Build SlicerROS2
-# #
-# WORKDIR /root
-# RUN mkdir -p /root/ros2_ws/src \
-#     && mkdir -p /root/ros2_ws/src \
-#     && cd /root/ros2_ws/src \
-#     #&& git clone https://github.com/jhu-cisst/ros2_cisst_msgs.git cisst_msgs \ # Installed as part of dVRK/ciasst
-#     #&& git clone https://github.com/jhu-saw/ros2_sensable_omni_model \
-#     && git clone -b devel https://github.com/rosmed/slicer_ros2_module \
-#     && cd /root/ros2_ws \
-#     && /bin/bash -c 'source /opt/ros/jazzy/setup.sh; colcon build --cmake-args -DSlicer_DIR:PATH=/root/slicer/Slicer-SuperBuild-Release/Slicer-build -DCMAKE_BUILD_TYPE=Release'
+# SlicerROS2 uses vtkSTLReader for ALL mesh files regardless of extension.
+# .dae (COLLADA) files are XML starting with <?xml, but vtkSTLReader expects
+# STL format starting with 'solid' — causing parse errors at runtime.
+# Fix: install assimp and convert every .dae to STL binary format in-place,
+# keeping the .dae filename so URDF package:// references continue to resolve.
+RUN apt-get update && apt-get install -y --no-install-recommends assimp-utils \
+    && rm -rf /var/lib/apt/lists/* \
+    && echo "Converting .dae mesh files to STL format for vtkSTLReader compatibility..." \
+    && find /root/ros2_ws/install -name "*.dae" | while read dae; do \
+        stl="${dae%.dae}_converted.stl"; \
+        if assimp export "$dae" "$stl" 2>/dev/null; then \
+            mv "$stl" "$dae"; \
+            echo "Converted: $dae"; \
+        else \
+            echo "WARNING: Failed to convert $dae"; \
+        fi; \
+    done \
+    && echo "Conversion complete." \
+    && echo "Mesh files ready: $(find /root/ros2_ws/install -path '*/kortex_description*' -name '*.dae' | wc -l) kortex, $(find /root/ros2_ws/install -path '*/robotiq_description*' -name '*.dae' | wc -l) robotiq" 
 
-# # #
-# # # Install 3D Slicer Extensions
-# # #
-# # WORKDIR /root
-# # COPY slicer/install-extension.py /root/slicer
-# # COPY slicer/install-module.py /root/slicer
-# # COPY slicer/start-slicer-ros2.bash /root
-# # WORKDIR /root
-# # RUN cd /root \
-# #     && chmod 755 start-slicer-ros2.bash 
+# Build the full workspace with colcon
+RUN /bin/bash -c 'source /opt/ros/humble/setup.bash && \
+    mkdir -p /root/ros2_ws/build/slicer_ros2_cmake && \
+    cd /root/ros2_ws/build/slicer_ros2_cmake && \
+    cmake \
+        -DSlicer_DIR=/root/slicer/Slicer-SuperBuild-Release/Slicer-build \
+        -DCMAKE_BUILD_TYPE=Release \
+        /root/ros2_ws/src/slicer_ros2_module && \
+    make -j$(nproc) && \
+    echo "=== Saving ROS2 modules to fixed path ===" && \
+    mkdir -p /root/slicer/ros2_loadable_modules && \
+    cp -r lib/Slicer-5.8/qt-loadable-modules/. /root/slicer/ros2_loadable_modules/ && \
+    ls /root/slicer/ros2_loadable_modules/'
 
-
-# # RUN /bin/bash -c "export EXTENSION_DIR=/root/slicer/packages; xvfb-run --auto-servernum /root/slicer/Slicer-SuperBuild-Release/Slicer-build/Slicer --no-main-window --no-splash --python-script /root/slicer/install-extension.py"
-
-# #
-# # Install 3D Slicer Modules
-# #
-
-# # SlicerROS2
-# WORKDIR /root
-# RUN /bin/bash -c "export MODULE_DIR=/root/ros2_ws/build/ROS2/lib/Slicer-5.6/qt-loadable-modules; xvfb-run --auto-servernum /root/slicer/Slicer-SuperBuild-Release/Slicer-build/Slicer --no-main-window --no-splash --python-script /root/slicer/install-module.py"
-
-# # Package SlicerROS2
-# # See https://github.com/rosmed/slicer_ros2_module/blob/main/release.md
-# WORKDIR /root/slicer/packages
-# RUN cd /root/slicer/packages \
-#     && pkg_name=`find Slicer-*.tar.gz |sed -e 's/.tar.gz//g'` \
-#     && tar zxvf $pkg_name.tar.gz \
-#     && cd /root/slicer/Slicer-SuperBuild-Release/Slicer-build \
-#     && cp vtkSlicerROS2Module* /root/slicer/packages/$pkg_name/ \
-#     && cp lib/Slicer-5.6/qt-loadable-modules/*ROS2* /root/slicer/packages/$pkg_name/lib/Slicer-5.6/qt-loadable-modules \
-#     && cd /root/slicer/packages \
-#     && find $pkg_name -name "*.so" -exec strip {} \; \
-#     && find $pkg_name -name "*.pyc" -exec rm {} \; \
-#     && mv $pkg_name $pkg_name-SlicerROS2-jazzy \
-#     && tar cf $pkg_name-SlicerROS2-jazzy.tar $pkg_name-SlicerROS2-jazzy \
-#     && gzip --best $pkg_name-SlicerROS2-jazzy.tar
-
-
-# #
-# # PLUS Toolkit
-# #
-# WORKDIR /root
-# RUN apt install -y libglvnd-dev libqt5x11extras5-dev qtdeclarative5-dev qml-module-qtquick*
-# WORKDIR /root
-# RUN mkdir -p /root/plus/ \
-#     && cd /root/plus \
-#     && git clone https://github.com/PlusToolkit/PlusBuild.git \
-#     && mkdir PlusBuild-bin \
-#     && cd PlusBuild-bin \
-#     && cmake ../PlusBuild -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=/root/plus/install -DPLUSBUILD_INSTALL_VTK=ON -DPLUSBUILD_INSTALL_ITK=ON \
-#     && make -j4 \
-#     && find . -name "*.o" -exec rm {} \; \
-#     && find . -name "*.d" -exec rm {} \;
-
-# #
+#
 # Final stage: Copy built Slicer + modules into the webtop image
 #
-FROM linuxserver/webtop:ubuntu-xfce
+# kasmweb/core-ubuntu-jammy is Ubuntu 22.04 (Jammy) with browser-accessible desktop
+# Access via: https://host:6901  |  User: kasm_user  |  Password: set via VNC_PW env var
+FROM kasmweb/core-ubuntu-jammy:1.18.0
+
+# Kasm runs as non-root by default — switch to root for all install steps
+USER root
+
+# Prevent interactive prompts during apt installs
+ENV DEBIAN_FRONTEND=noninteractive
+ENV TZ=UTC
+
+# Add ROS 2 Humble apt repository
+RUN apt-get update && apt-get install -y --no-install-recommends curl gnupg lsb-release \
+    && curl -sSL https://raw.githubusercontent.com/ros/rosdistro/master/ros.key \
+       -o /usr/share/keyrings/ros-archive-keyring.gpg \
+    && echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/ros-archive-keyring.gpg] \
+       http://packages.ros.org/ros2/ubuntu $(lsb_release -cs) main" \
+       > /etc/apt/sources.list.d/ros2.list
 
 RUN apt-get update && apt-get install -y \
     libglib2.0-0 \
@@ -292,16 +356,56 @@ RUN apt-get update && apt-get install -y \
     libqt5webengine5 \
     libqt5webenginewidgets5 \
     libnsl2 \
+    ros-humble-desktop \
+    ros-humble-rosbag2 \
+    ros-humble-rosbag2-storage \
+    ros-humble-rosbag2-transport \
+    ros-humble-joint-state-publisher \
+    ros-humble-joint-state-publisher-gui \
+    ros-humble-xacro \
+    ros-humble-moveit-msgs \
+    ros-humble-object-recognition-msgs \
+    python3-colcon-common-extensions \
     && rm -rf /var/lib/apt/lists/*
+
+# Source ROS Humble automatically for all shell sessions
+RUN echo 'source /opt/ros/humble/setup.bash' >> /etc/bash.bashrc && \
+    echo 'source /opt/ros/humble/setup.bash' >> /etc/profile
     
 # Copy all built packages from builder stage
 COPY --from=slicer-builder /root/slicer/packages /root/slicer/packages
+
+# Copy the built ROS2 workspace (includes SlicerROS2 module)
+# COPY --from=slicer-builder /root/ros2_ws /root/ros2_ws
+
+# Copy kortex_description and robotiq_description install directories from builder.
+# These provide the mesh files (.dae) needed to resolve package://kortex_description/...
+# and package://robotiq_description/... URIs from robot_description messages sent by rossim.
+COPY --from=slicer-builder /root/ros2_ws/install/kortex_description /root/ros2_ws/install/kortex_description
+COPY --from=slicer-builder /root/ros2_ws/install/robotiq_description /root/ros2_ws/install/robotiq_description
+
+# Add the description packages to AMENT_PREFIX_PATH so ROS2 package:// URI
+# resolution can find them at runtime when Slicer loads the robot model
+ENV AMENT_PREFIX_PATH=/root/ros2_ws/install/kortex_description:/root/ros2_ws/install/robotiq_description
+
+# Also bake the AMENT_PREFIX_PATH into shell startup so GUI-launched Slicer inherits it
+RUN echo 'export AMENT_PREFIX_PATH=/root/ros2_ws/install/kortex_description:/root/ros2_ws/install/robotiq_description:${AMENT_PREFIX_PATH}' >> /etc/bash.bashrc \
+    && echo 'export AMENT_PREFIX_PATH=/root/ros2_ws/install/kortex_description:/root/ros2_ws/install/robotiq_description:${AMENT_PREFIX_PATH}' >> /etc/profile \
+    && echo 'export AMENT_PREFIX_PATH=/root/ros2_ws/install/kortex_description:/root/ros2_ws/install/robotiq_description:${AMENT_PREFIX_PATH}' >> /dockerstartup/kasm_default_profile.sh
 
 # Extract and set up Slicer
 RUN cd /root/slicer/packages && \
     tar -xzf Slicer-*.tar.gz && \
     SLICER_DIR=$(find /root/slicer/packages -maxdepth 1 -type d -name "Slicer-*" | head -1) && \
     ln -s ${SLICER_DIR}/Slicer /usr/local/bin/Slicer
+
+COPY --from=slicer-builder /root/slicer/ros2_loadable_modules /root/slicer/ros2_loadable_modules
+
+RUN SLICER_DIR=$(find /root/slicer/packages -maxdepth 1 -type d -name "Slicer-*" | head -1) && \
+    mkdir -p "${SLICER_DIR}/lib/Slicer-5.8/qt-loadable-modules" && \
+    cp -r /root/slicer/ros2_loadable_modules/. "${SLICER_DIR}/lib/Slicer-5.8/qt-loadable-modules/" && \
+    echo "=== ROS2 modules installed ===" && \
+    ls "${SLICER_DIR}/lib/Slicer-5.8/qt-loadable-modules/" | grep -i ros
 
 COPY dockerfiles/optimized/slicer/install-extension.py /root/slicer
 COPY dockerfiles/optimized/slicer/install-module.py /root/slicer
@@ -319,6 +423,14 @@ RUN cd /root/slicer/packages && \
             echo "=== Successfully installed $module ===" ; \
         fi \
     done
+
+# Install SlicerROS2 loadable module into Slicer
+# Copy pre-built SlicerROS2 module from builder
+# COPY --from=slicer-builder /root/slicer/ros2_module_install /root/slicer/ros2_module_install
+
+# # Install into Slicer
+# RUN SLICER_DIR=$(find /root/slicer/packages -maxdepth 1 -type d -name "Slicer-*" | head -1) && \
+#     cp -r /root/slicer/ros2_module_install/. "${SLICER_DIR}/"
 
 #
 # SlicerTMS (Python scripted module) - FIXED VERSION
@@ -350,9 +462,6 @@ RUN cd /root \
     && chmod 755 start-slicer-ros2.bash
 
 WORKDIR /root
-
-USER root
-
 # ==============================================================================
 # SOLUTION: Multiple approaches to ensure environment variables are available
 # ==============================================================================
@@ -377,19 +486,25 @@ RUN echo "TMS_SERVER_HOST=tmsserver" >> /etc/environment && \
     echo "TMS_SERVER_PORT_1=18944" >> /etc/environment && \
     echo "TMS_SERVER_PORT_2=18945" >> /etc/environment
 
-# Approach 4: Create custom init script for LinuxServer s6-overlay
-RUN mkdir -p /etc/s6-overlay/s6-rc.d/user/contents.d && \
-    mkdir -p /etc/s6-overlay/s6-rc.d/init-tms-env && \
-    echo "oneshot" > /etc/s6-overlay/s6-rc.d/init-tms-env/type && \
-    echo "/etc/s6-overlay/s6-rc.d/init-tms-env/up" > /etc/s6-overlay/s6-rc.d/user/contents.d/init-tms-env
-
-# Copy the init script (create this file in dockerfiles/optimized/init-tms-env)
-COPY dockerfiles/optimized/init-tms-env /etc/s6-overlay/s6-rc.d/init-tms-env/up
-RUN chmod +x /etc/s6-overlay/s6-rc.d/init-tms-env/up
-
-# Approach 5: Add to XFCE autostart so GUI apps inherit the variables
-RUN mkdir -p /config/.config/autostart
-COPY dockerfiles/optimized/tms-env.desktop /config/.config/autostart/tms-env.desktop
+# Approach 4: Add to Kasm startup script so GUI apps inherit env variables
+RUN echo 'export TMS_SERVER_HOST="${TMS_SERVER_HOST:-tmsserver}"' >> /dockerstartup/kasm_default_profile.sh && \
+    echo 'export TMS_SERVER_PORT_1="${TMS_SERVER_PORT_1:-18944}"' >> /dockerstartup/kasm_default_profile.sh && \
+    echo 'export TMS_SERVER_PORT_2="${TMS_SERVER_PORT_2:-18945}"' >> /dockerstartup/kasm_default_profile.sh
 
 # Optional: Add Slicer to PATH
 ENV PATH="/root/slicer/packages/Slicer-*/bin:${PATH}"
+
+# Set a password for kasm-user and grant sudo access
+RUN echo "kasm-user:yourpassword" | chpasswd && \
+    usermod -aG sudo kasm-user && \
+    echo "kasm-user ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers
+
+RUN chown -R kasm-user:kasm-user /root/slicer/packages && \
+    chmod -R 755 /root/slicer/packages && \
+    chmod 755 /root && \
+    chmod 755 /root/slicer
+
+
+
+# Switch back to Kasm's default non-root user
+USER 1000

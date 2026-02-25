@@ -78,12 +78,15 @@ services:
       - SUBFOLDER=/
       - TITLE=ROS2 Simulator
     volumes:
-      - ./config:/config
+        - ./config:/config
+        - ./dockerfiles/ROS2armsim/data/moveit2_tutorials:/opt/ws_moveit/src/moveit2_tutorials
     shm_size: 2gb
     # Add memory limits to prevent OOM during runtime
     mem_limit: 4g
     memswap_limit: 4g
     restart: unless-stopped
+    networks:
+      - tms-network
     # Optional: GPU support if available
     # devices:
     #   - /dev/dri:/dev/dri
@@ -141,9 +144,10 @@ services:
       context: .
       dockerfile: dockerfiles/optimized/dockerfile.buildkit-full
     image: optimized
-    container_name: optimized
-    user: root 
+    container_name: optimized 
     environment:
+      #username kasm_user 
+      - VNC_PW=yourpassword
       - PUID=1000
       - PGID=1000
       - TZ=Etc/UTC
@@ -155,8 +159,8 @@ services:
     # volumes:
     #   - /path/to/data:/config
     ports:
-      - 3002:3000
-      - 3003:3001
+      - 3002:6900
+      - 3003:6901
     shm_size: "1gb"
     stdin_open: true
     tty: true

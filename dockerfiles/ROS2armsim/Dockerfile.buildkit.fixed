@@ -94,6 +94,8 @@ RUN --mount=type=cache,target=/tmp/git-cache,sharing=locked \
     cd /opt/ws_moveit/src \
     && git clone https://github.com/moveit/moveit2_tutorials \
     && echo "Tutorials cloned successfully"
+## Clone tutorials from data folder (already cloned locally)
+# COPY data/moveit2_tutorials /opt/ws_moveit/src/moveit2_tutorials
 
 ## Import dependencies (with git cache mount)
 RUN --mount=type=cache,target=/tmp/git-cache,sharing=locked \
@@ -197,8 +199,20 @@ ENV CCACHE_DIR=/tmp/ccache
 RUN echo 'echo "ROS2 MoveIt workspace ready at ~/ws_moveit"' >> /config/.bashrc \
     && echo 'echo "Run workspace-info.sh for more information"' >> /config/.bashrc
 
-#RUN inside opt/ws_moveit
-#source /opt/ros/jazzy/setup.bash
-#source /opt/ws_moveit/install/setup.bash   # if the build succeeded
-#ros2 launch moveit2_tutorials demo.launch.py
+## Set entrypoint script to launch MoveIt demo on container start
+RUN echo '#!/bin/bash\n\
+source /opt/ros/jazzy/setup.bash\n\
+if [ -f /opt/ws_moveit/install/setup.bash ]; then\n\
+    source /opt/ws_moveit/install/setup.bash\n\
+    cd /opt/ws_moveit\n\
+    ros2 launch moveit2_tutorials demo.launch.py\n\
+else\n\
+    echo "ERROR: MoveIt workspace not built"\n\
+    exit 1\n\
+fi' > /usr/local/bin/entrypoint.sh \
+    && chmod +x /usr/local/bin/entrypoint.sh
 
+# ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
+RUN mkdir -p /etc/xdg/autostart && \
+    echo "[Desktop Entry]\nType=Application\nName=MoveIt Demo\nExec=/usr/local/bin/start-demo.sh\nX-GNOME-Autostart-enabled=true" \
+    > /etc/xdg/autostart/moveit-demo.desktop

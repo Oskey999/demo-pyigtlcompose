@@ -278,22 +278,38 @@ RUN /bin/bash -c 'source /opt/ros/humble/setup.bash \
 # SlicerROS2 uses vtkSTLReader for ALL mesh files regardless of extension.
 # .dae (COLLADA) files are XML starting with <?xml, but vtkSTLReader expects
 # STL format starting with 'solid' — causing parse errors at runtime.
-# Fix: install assimp and convert every .dae to STL binary format in-place,
-# keeping the .dae filename so URDF package:// references continue to resolve.
-RUN apt-get update && apt-get install -y --no-install-recommends assimp-utils \
+#
+# IMPORTANT: Do NOT use assimp for this conversion — assimp auto-detects the
+# COLLADA up-axis (Y_UP) and rotates geometry to Z_UP on export, which twists
+# each mesh link individually and makes the robot look broken/exploded in Slicer.
+#
+# Fix: use trimesh, which converts geometry to binary STL without applying any
+# axis transformation — preserving the exact orientation from the URDF.
+# The .dae filename is kept so URDF package:// references continue to resolve.
+RUN apt-get update && apt-get install -y --no-install-recommends python3-pip \
     && rm -rf /var/lib/apt/lists/* \
-    && echo "Converting .dae mesh files to STL format for vtkSTLReader compatibility..." \
-    && find /root/ros2_ws/install -name "*.dae" | while read dae; do \
-        stl="${dae%.dae}_converted.stl"; \
-        if assimp export "$dae" "$stl" 2>/dev/null; then \
-            mv "$stl" "$dae"; \
-            echo "Converted: $dae"; \
-        else \
-            echo "WARNING: Failed to convert $dae"; \
-        fi; \
-    done \
-    && echo "Conversion complete." \
-    && echo "Mesh files ready: $(find /root/ros2_ws/install -path '*/kortex_description*' -name '*.dae' | wc -l) kortex, $(find /root/ros2_ws/install -path '*/robotiq_description*' -name '*.dae' | wc -l) robotiq" 
+    && pip3 install --quiet trimesh numpy pycollada
+COPY dockerfiles/optimized/convertmesh.py /root/convertmesh.py
+RUN python3 /root/convertmesh.py
+#     && python3 -c " \
+# import trimesh, glob, os, sys \
+# files = glob.glob('/root/ros2_ws/install/**/*.dae', recursive=True) \
+# print(f'Converting {len(files)} .dae mesh files to STL format...') \
+# ok, fail = 0, 0 \
+# for dae in files: \
+#     try: \
+#         mesh = trimesh.load(dae, force='mesh', skip_materials=True) \
+#         stl_bytes = mesh.export(file_type='stl') \
+#         with open(dae, 'wb') as f: \
+#             f.write(stl_bytes) \
+#         print(f'  OK: {os.path.basename(dae)}') \
+#         ok += 1 \
+#     except Exception as e: \
+#         print(f'  WARNING: Failed {os.path.basename(dae)}: {e}') \
+#         fail += 1 \
+# print(f'Done: {ok} converted, {fail} failed') \
+# sys.exit(1 if fail == len(files) else 0) \
+# " 
 
 # Build the full workspace with colcon
 RUN /bin/bash -c 'source /opt/ros/humble/setup.bash && \

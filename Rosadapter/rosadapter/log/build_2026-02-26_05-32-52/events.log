@@ -1,0 +1,54 @@
+[0.000000] (-) TimerEvent: {}
+[0.000077] (adaptor_pkg) JobQueued: {'identifier': 'adaptor_pkg', 'dependencies': OrderedDict()}
+[0.000843] (adaptor_pkg) JobStarted: {'identifier': 'adaptor_pkg'}
+[0.099782] (-) TimerEvent: {}
+[0.200029] (-) TimerEvent: {}
+[0.300254] (-) TimerEvent: {}
+[0.400487] (-) TimerEvent: {}
+[0.500686] (-) TimerEvent: {}
+[0.600884] (-) TimerEvent: {}
+[0.701071] (-) TimerEvent: {}
+[0.737430] (adaptor_pkg) Command: {'cmd': ['/usr/bin/python3', '-W', 'ignore:setup.py install is deprecated', '-W', 'ignore:easy_install command is deprecated', 'setup.py', 'egg_info', '--egg-base', '../build/adaptor_pkg', 'build', '--build-base', '/rosadapter/build/adaptor_pkg/build', 'install', '--record', '/rosadapter/build/adaptor_pkg/install.log', '--single-version-externally-managed', 'install_data'], 'cwd': '/rosadapter/adaptor_pkg', 'env': {'SHLVL': '0', 'LD_LIBRARY_PATH': '/opt/ros/jazzy/lib/x86_64-linux-gnu:/opt/ros/jazzy/lib', 'HOME': '/root', 'ROS_PYTHON_VERSION': '3', 'ROS_DISTRO': 'jazzy', '_': '/usr/bin/colcon', 'ROS_VERSION': '2', 'PATH': '/opt/ros/jazzy/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin', 'LANG': 'C.UTF-8', 'AMENT_PREFIX_PATH': '/opt/ros/jazzy', 'ROS_AUTOMATIC_DISCOVERY_RANGE': 'SUBNET', 'PWD': '/rosadapter/build/adaptor_pkg', 'LC_ALL': 'C.UTF-8', 'PYTHONPATH': '/rosadapter/build/adaptor_pkg/prefix_override:/usr/lib/python3/dist-packages/colcon_core/task/python/colcon_distutils_commands:/rosadapter/install/adaptor_pkg/lib/python3.12/site-packages:/opt/ros/jazzy/lib/python3.12/site-packages', 'COLCON': '1'}, 'shell': False}
+[0.801206] (-) TimerEvent: {}
+[0.901414] (-) TimerEvent: {}
+[0.928164] (adaptor_pkg) StdoutLine: {'line': b'running egg_info\n'}
+[0.928686] (adaptor_pkg) StdoutLine: {'line': b'creating ../build/adaptor_pkg/adaptor_pkg.egg-info\n'}
+[0.940038] (adaptor_pkg) StdoutLine: {'line': b'writing ../build/adaptor_pkg/adaptor_pkg.egg-info/PKG-INFO\n'}
+[0.940330] (adaptor_pkg) StdoutLine: {'line': b'writing dependency_links to ../build/adaptor_pkg/adaptor_pkg.egg-info/dependency_links.txt\n'}
+[0.940513] (adaptor_pkg) StdoutLine: {'line': b'writing entry points to ../build/adaptor_pkg/adaptor_pkg.egg-info/entry_points.txt\n'}
+[0.940803] (adaptor_pkg) StdoutLine: {'line': b'writing requirements to ../build/adaptor_pkg/adaptor_pkg.egg-info/requires.txt\n'}
+[0.941044] (adaptor_pkg) StdoutLine: {'line': b'writing top-level names to ../build/adaptor_pkg/adaptor_pkg.egg-info/top_level.txt\n'}
+[0.941302] (adaptor_pkg) StdoutLine: {'line': b"writing manifest file '../build/adaptor_pkg/adaptor_pkg.egg-info/SOURCES.txt'\n"}
+[0.963928] (adaptor_pkg) StdoutLine: {'line': b"reading manifest file '../build/adaptor_pkg/adaptor_pkg.egg-info/SOURCES.txt'\n"}
+[0.964225] (adaptor_pkg) StdoutLine: {'line': b"adding license file 'LICENSE'\n"}
+[0.964613] (adaptor_pkg) StdoutLine: {'line': b"writing manifest file '../build/adaptor_pkg/adaptor_pkg.egg-info/SOURCES.txt'\n"}
+[0.965011] (adaptor_pkg) StdoutLine: {'line': b'running build\n'}
+[0.965130] (adaptor_pkg) StdoutLine: {'line': b'running build_py\n'}
+[0.965205] (adaptor_pkg) StdoutLine: {'line': b'creating /rosadapter/build/adaptor_pkg/build\n'}
+[0.965547] (adaptor_pkg) StdoutLine: {'line': b'creating /rosadapter/build/adaptor_pkg/build/lib\n'}
+[0.966020] (adaptor_pkg) StdoutLine: {'line': b'creating /rosadapter/build/adaptor_pkg/build/lib/adaptor_pkg\n'}
+[0.966545] (adaptor_pkg) StdoutLine: {'line': b'copying adaptor_pkg/adaptor.py -> /rosadapter/build/adaptor_pkg/build/lib/adaptor_pkg\n'}
+[0.966758] (adaptor_pkg) StdoutLine: {'line': b'copying adaptor_pkg/__init__.py -> /rosadapter/build/adaptor_pkg/build/lib/adaptor_pkg\n'}
+[0.966970] (adaptor_pkg) StdoutLine: {'line': b'running install\n'}
+[0.971893] (adaptor_pkg) StdoutLine: {'line': b'running install_lib\n'}
+[0.983568] (adaptor_pkg) StdoutLine: {'line': b'creating /rosadapter/install/adaptor_pkg/lib/python3.12/site-packages/adaptor_pkg\n'}
+[0.984109] (adaptor_pkg) StdoutLine: {'line': b'copying /rosadapter/build/adaptor_pkg/build/lib/adaptor_pkg/adaptor.py -> /rosadapter/install/adaptor_pkg/lib/python3.12/site-packages/adaptor_pkg\n'}
+[0.984387] (adaptor_pkg) StdoutLine: {'line': b'copying /rosadapter/build/adaptor_pkg/build/lib/adaptor_pkg/__init__.py -> /rosadapter/install/adaptor_pkg/lib/python3.12/site-packages/adaptor_pkg\n'}
+[0.985016] (adaptor_pkg) StdoutLine: {'line': b'byte-compiling /rosadapter/install/adaptor_pkg/lib/python3.12/site-packages/adaptor_pkg/adaptor.py to adaptor.cpython-312.pyc\n'}
+[0.985877] (adaptor_pkg) StdoutLine: {'line': b'byte-compiling /rosadapter/install/adaptor_pkg/lib/python3.12/site-packages/adaptor_pkg/__init__.py to __init__.cpython-312.pyc\n'}
+[0.986258] (adaptor_pkg) StdoutLine: {'line': b'running install_data\n'}
+[0.986386] (adaptor_pkg) StdoutLine: {'line': b'creating /rosadapter/install/adaptor_pkg/share/ament_index\n'}
+[0.986749] (adaptor_pkg) StdoutLine: {'line': b'creating /rosadapter/install/adaptor_pkg/share/ament_index/resource_index\n'}
+[0.987185] (adaptor_pkg) StdoutLine: {'line': b'creating /rosadapter/install/adaptor_pkg/share/ament_index/resource_index/packages\n'}
+[0.987696] (adaptor_pkg) StdoutLine: {'line': b'copying resource/adaptor_pkg -> /rosadapter/install/adaptor_pkg/share/ament_index/resource_index/packages\n'}
+[0.987901] (adaptor_pkg) StdoutLine: {'line': b'copying package.xml -> /rosadapter/install/adaptor_pkg/share/adaptor_pkg\n'}
+[0.988168] (adaptor_pkg) StdoutLine: {'line': b'running install_egg_info\n'}
+[1.001099] (adaptor_pkg) StdoutLine: {'line': b'Copying ../build/adaptor_pkg/adaptor_pkg.egg-info to /rosadapter/install/adaptor_pkg/lib/python3.12/site-packages/adaptor_pkg-0.0.0-py3.12.egg-info\n'}
+[1.001499] (-) TimerEvent: {}
+[1.002904] (adaptor_pkg) StdoutLine: {'line': b'running install_scripts\n'}
+[1.092025] (adaptor_pkg) StdoutLine: {'line': b'Installing adaptor script to /rosadapter/install/adaptor_pkg/lib/adaptor_pkg\n'}
+[1.092926] (adaptor_pkg) StdoutLine: {'line': b"writing list of installed files to '/rosadapter/build/adaptor_pkg/install.log'\n"}
+[1.101640] (-) TimerEvent: {}
+[1.118773] (adaptor_pkg) CommandEnded: {'returncode': 0}
+[1.177679] (adaptor_pkg) JobEnded: {'identifier': 'adaptor_pkg', 'rc': 0}
+[1.178385] (-) EventReactorShutdown: {}

@@ -2,4 +2,4 @@
 export TMS_SERVER_HOST=tmsserver
 export TMS_SERVER_PORT_1=18944
 export TMS_SERVER_PORT_2=18945
-sudo Slicer
+Slicer

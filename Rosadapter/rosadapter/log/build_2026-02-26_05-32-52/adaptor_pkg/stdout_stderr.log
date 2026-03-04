@@ -1,0 +1,36 @@
+running egg_info
+creating ../build/adaptor_pkg/adaptor_pkg.egg-info
+writing ../build/adaptor_pkg/adaptor_pkg.egg-info/PKG-INFO
+writing dependency_links to ../build/adaptor_pkg/adaptor_pkg.egg-info/dependency_links.txt
+writing entry points to ../build/adaptor_pkg/adaptor_pkg.egg-info/entry_points.txt
+writing requirements to ../build/adaptor_pkg/adaptor_pkg.egg-info/requires.txt
+writing top-level names to ../build/adaptor_pkg/adaptor_pkg.egg-info/top_level.txt
+writing manifest file '../build/adaptor_pkg/adaptor_pkg.egg-info/SOURCES.txt'
+reading manifest file '../build/adaptor_pkg/adaptor_pkg.egg-info/SOURCES.txt'
+adding license file 'LICENSE'
+writing manifest file '../build/adaptor_pkg/adaptor_pkg.egg-info/SOURCES.txt'
+running build
+running build_py
+creating /rosadapter/build/adaptor_pkg/build
+creating /rosadapter/build/adaptor_pkg/build/lib
+creating /rosadapter/build/adaptor_pkg/build/lib/adaptor_pkg
+copying adaptor_pkg/adaptor.py -> /rosadapter/build/adaptor_pkg/build/lib/adaptor_pkg
+copying adaptor_pkg/__init__.py -> /rosadapter/build/adaptor_pkg/build/lib/adaptor_pkg
+running install
+running install_lib
+creating /rosadapter/install/adaptor_pkg/lib/python3.12/site-packages/adaptor_pkg
+copying /rosadapter/build/adaptor_pkg/build/lib/adaptor_pkg/adaptor.py -> /rosadapter/install/adaptor_pkg/lib/python3.12/site-packages/adaptor_pkg
+copying /rosadapter/build/adaptor_pkg/build/lib/adaptor_pkg/__init__.py -> /rosadapter/install/adaptor_pkg/lib/python3.12/site-packages/adaptor_pkg
+byte-compiling /rosadapter/install/adaptor_pkg/lib/python3.12/site-packages/adaptor_pkg/adaptor.py to adaptor.cpython-312.pyc
+byte-compiling /rosadapter/install/adaptor_pkg/lib/python3.12/site-packages/adaptor_pkg/__init__.py to __init__.cpython-312.pyc
+running install_data
+creating /rosadapter/install/adaptor_pkg/share/ament_index
+creating /rosadapter/install/adaptor_pkg/share/ament_index/resource_index
+creating /rosadapter/install/adaptor_pkg/share/ament_index/resource_index/packages
+copying resource/adaptor_pkg -> /rosadapter/install/adaptor_pkg/share/ament_index/resource_index/packages
+copying package.xml -> /rosadapter/install/adaptor_pkg/share/adaptor_pkg
+running install_egg_info
+Copying ../build/adaptor_pkg/adaptor_pkg.egg-info to /rosadapter/install/adaptor_pkg/lib/python3.12/site-packages/adaptor_pkg-0.0.0-py3.12.egg-info
+running install_scripts
+Installing adaptor script to /rosadapter/install/adaptor_pkg/lib/adaptor_pkg
+writing list of installed files to '/rosadapter/build/adaptor_pkg/install.log'

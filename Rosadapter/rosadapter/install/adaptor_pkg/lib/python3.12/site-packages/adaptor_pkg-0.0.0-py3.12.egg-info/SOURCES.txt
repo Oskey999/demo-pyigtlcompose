@@ -1,0 +1,17 @@
+LICENSE
+package.xml
+setup.cfg
+setup.py
+../build/adaptor_pkg/adaptor_pkg.egg-info/PKG-INFO
+../build/adaptor_pkg/adaptor_pkg.egg-info/SOURCES.txt
+../build/adaptor_pkg/adaptor_pkg.egg-info/dependency_links.txt
+../build/adaptor_pkg/adaptor_pkg.egg-info/entry_points.txt
+../build/adaptor_pkg/adaptor_pkg.egg-info/requires.txt
+../build/adaptor_pkg/adaptor_pkg.egg-info/top_level.txt
+../build/adaptor_pkg/adaptor_pkg.egg-info/zip-safe
+adaptor_pkg/__init__.py
+adaptor_pkg/adaptor.py
+resource/adaptor_pkg
+test/test_copyright.py
+test/test_flake8.py
+test/test_pep257.py

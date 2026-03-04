@@ -201,7 +201,8 @@ class SlicerTMSWidget(ScriptedLoadableModuleWidget):
         # Load example in Slicer
         data_dir = get_tms_value('TMS_DATA_DIR', '../data')
         example_path = os.path.join(data_dir, self.selectedExample)
-        L.Loader.loadExample(example_path)
+        self.loader = L.Loader.loadExample(example_path)
+        # L.Loader.loadExample(example_path)  # ← store on self to prevent GC
 
     def setupButtons(self):
         debug_print("-" * 40)

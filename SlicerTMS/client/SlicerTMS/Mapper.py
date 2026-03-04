@@ -129,8 +129,48 @@ class Mapper:
         loader.magfieldNode.SetAndObserveImageData(DataOut)
         print("Set image data on magnetic field node")
     
+        ## pub here
+        # Get the transform node that the magfieldNode is nested under
+        loader.magfieldNode.SetAndObserveImageData(DataOut)
+        print("Set image data on magnetic field node")
+
+        ## ROS publish
+        if loader.pubTransform is not None:
+            try:
+                transformMatrix = vtk.vtkMatrix4x4()
+                loader.transformNode.GetMatrixTransformToWorld(transformMatrix)
+                
+                # Get the blank message from the publisher and populate it
+                msg = loader.pubTransform.GetBlankMessage()
+                # Copy the transform data to the message
+                for i in range(4):
+                    for j in range(4):
+                        msg.SetElement(i, j, transformMatrix.GetElement(i, j))
+                
+                loader.pubTransform.Publish(msg)
+                print("Published transform to ROS")
+            except Exception as e:
+                print(f"Error publishing transform: {e}") 
+
+        ## IGTL push
         loader.IGTLNode.PushNode(loader.magfieldNode)
-        print("Pushed magnetic field node to IGTL node")
+        print("Pushed magnetic field node to IGTL")
+        # transformNodeID = loader.magfieldNode.GetTransformNodeID()
+
+        # if not transformNodeID:
+        #     print("No transform node associated with magfieldNode — skipping publish")
+        # else:
+        #     transformNode = slicer.mrmlScene.GetNodeByID(transformNodeID)
+            
+        #     if transformNode is None:
+        #         print("Transform node ID found but node not in scene")
+        #     else:
+        #         loader.magfieldNode.transformMatrix = vtk.vtkMatrix4x4()
+        #         transformNode.GetMatrixTransformToWorld(loader.magfieldNode.transformMatrix)
+        #         loader.pubTransform.Publish(loader.magfieldNode.transformMatrix)
+
+        #         loader.IGTLNode.PushNode(loader.magfieldNode)
+        #         print("Pushed magnetic field node to IGTL node")
 
 
         # time in seconds:

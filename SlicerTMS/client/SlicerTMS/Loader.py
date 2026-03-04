@@ -55,7 +55,25 @@ class Loader:
         self.IGTLNode = None
 
         self.showMag = False #switch between magnetic and electric field for visualization
+
+        rosLogic = slicer.util.getModuleLogic('ROS2')
+        self.rosNode = rosLogic.GetDefaultROS2Node()
+        self.pubTransform = self.rosNode.CreateAndAddPublisherNode(
+            'Pose',
+            '/magfield_transform'
+        )
+        if self.pubTransform is None:
+            print("ERROR: Failed to create publisher node!")
+        else:
+            print(f"Publisher created successfully: {self.pubTransform.GetTopic()}")
         print("Loader initialization completed")
+
+    # New for ROS
+    # def onTransformModified(self, caller, event):
+    #     print("Transform modified event received, preparing to publish transform\n--------------------------------------------------------------------")
+    #     transformMatrix = vtk.vtkMatrix4x4()
+    #     caller.GetMatrixTransformToWorld(transformMatrix)  # now caller is the transform node ✓
+    #     self.pubTransform.Publish(transformMatrix)
 
     def callMapper(self, param1=None, param2=None):
         print("CallMapper method called")
@@ -499,6 +517,15 @@ class Loader:
         print("Added observer for markups plane node point modification")
         loader.transformNavigationNode.AddObserver(slicer.vtkMRMLTransformableNode.TransformModifiedEvent, loader.callMapper)
         print("Added observer for transform navigation node modification")
+        # loader.transformNavigationNode.AddObserver(
+        #     slicer.vtkMRMLTransformableNode.TransformModifiedEvent,
+        #     loader.onTransformModified
+        # )
+        # loader.transformNavigationNode.AddObserver(
+        #     slicer.vtkMRMLTransformableNode.TransformModifiedEvent,
+        #     loader.onTransformModified
+        # )
+        print("Added observer for magnetic field node transform modification FOR ROS publishing")
         #slicer.mrmlScene.AddObserver(slicer.vtkMRMLScene.NodeAddedEvent, loader.onNodeRcvd)
 
         print("loadExample method completed successfully")

@@ -1,0 +1,27 @@
+FROM ros:jazzy-ros-base
+
+# Install Python and pip
+RUN apt-get update && apt-get install -y \
+    python3-pip \
+    python3-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install ROS2 Python development tools
+RUN apt-get update && apt-get install -y \
+    python3-colcon-common-extensions \
+    && rm -rf /var/lib/apt/lists/*
+
+# Create workspace
+WORKDIR /rosadapter
+
+# Create ROS2 package
+# RUN /bin/bash -c "source /opt/ros/jazzy/setup.bash && ros2 pkg create --build-type ament_python --license Apache-2.0 --node-name adaptor adaptor_pkg"
+COPY ./Rosadapter ./rosadapter
+# Build workspace
+RUN /bin/bash -c "source /opt/ros/jazzy/setup.bash && colcon build"
+
+# Source setup and run node
+RUN echo "source /opt/ros/jazzy/setup.bash" >> ~/.bashrc
+RUN colcon build
+RUN /bin/bash -c "source install/setup.bash"
+CMD ["bash", "-c", "source install/setup.bash && ros2 run adaptor_pkg adaptor"]

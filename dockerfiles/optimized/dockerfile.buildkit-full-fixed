@@ -458,5 +458,6 @@ RUN chmod +x /etc/s6-overlay/s6-rc.d/init-tms-env/up
 RUN mkdir -p /config/.config/autostart
 COPY dockerfiles/optimized/tms-env.desktop /config/.config/autostart/tms-env.desktop
 
+
 # Optional: Add Slicer to PATH
 ENV PATH="/root/slicer/packages/Slicer-*/bin:${PATH}"

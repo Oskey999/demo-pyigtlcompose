@@ -87,6 +87,20 @@ services:
     restart: unless-stopped
     networks:
       - tms-network
+
+  ROSadapter:
+    image: rosadapter
+    container_name: rosadapter
+    build:
+      context: .
+      dockerfile: dockerfiles/ROSadapter/dockerfile
+    volumes:
+      - ./Rosadapter:/Rosadapter
+    mem_limit: 4g
+    memswap_limit: 4g
+    restart: unless-stopped
+    networks:
+      - tms-network
     # Optional: GPU support if available
     # devices:
     #   - /dev/dri:/dev/dri

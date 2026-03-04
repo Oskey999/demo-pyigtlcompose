@@ -1,0 +1,38 @@
+[0.738s] Invoking command in '/rosadapter/adaptor_pkg': PYTHONPATH=/rosadapter/build/adaptor_pkg/prefix_override:/usr/lib/python3/dist-packages/colcon_core/task/python/colcon_distutils_commands:/rosadapter/install/adaptor_pkg/lib/python3.12/site-packages:${PYTHONPATH} /usr/bin/python3 -W ignore:setup.py install is deprecated -W ignore:easy_install command is deprecated setup.py egg_info --egg-base ../build/adaptor_pkg build --build-base /rosadapter/build/adaptor_pkg/build install --record /rosadapter/build/adaptor_pkg/install.log --single-version-externally-managed install_data
+[0.928s] running egg_info
+[0.928s] creating ../build/adaptor_pkg/adaptor_pkg.egg-info
+[0.939s] writing ../build/adaptor_pkg/adaptor_pkg.egg-info/PKG-INFO
+[0.940s] writing dependency_links to ../build/adaptor_pkg/adaptor_pkg.egg-info/dependency_links.txt
+[0.940s] writing entry points to ../build/adaptor_pkg/adaptor_pkg.egg-info/entry_points.txt
+[0.940s] writing requirements to ../build/adaptor_pkg/adaptor_pkg.egg-info/requires.txt
+[0.940s] writing top-level names to ../build/adaptor_pkg/adaptor_pkg.egg-info/top_level.txt
+[0.941s] writing manifest file '../build/adaptor_pkg/adaptor_pkg.egg-info/SOURCES.txt'
+[0.963s] reading manifest file '../build/adaptor_pkg/adaptor_pkg.egg-info/SOURCES.txt'
+[0.963s] adding license file 'LICENSE'
+[0.964s] writing manifest file '../build/adaptor_pkg/adaptor_pkg.egg-info/SOURCES.txt'
+[0.964s] running build
+[0.964s] running build_py
+[0.964s] creating /rosadapter/build/adaptor_pkg/build
+[0.965s] creating /rosadapter/build/adaptor_pkg/build/lib
+[0.965s] creating /rosadapter/build/adaptor_pkg/build/lib/adaptor_pkg
+[0.966s] copying adaptor_pkg/adaptor.py -> /rosadapter/build/adaptor_pkg/build/lib/adaptor_pkg
+[0.966s] copying adaptor_pkg/__init__.py -> /rosadapter/build/adaptor_pkg/build/lib/adaptor_pkg
+[0.966s] running install
+[0.971s] running install_lib
+[0.983s] creating /rosadapter/install/adaptor_pkg/lib/python3.12/site-packages/adaptor_pkg
+[0.983s] copying /rosadapter/build/adaptor_pkg/build/lib/adaptor_pkg/adaptor.py -> /rosadapter/install/adaptor_pkg/lib/python3.12/site-packages/adaptor_pkg
+[0.984s] copying /rosadapter/build/adaptor_pkg/build/lib/adaptor_pkg/__init__.py -> /rosadapter/install/adaptor_pkg/lib/python3.12/site-packages/adaptor_pkg
+[0.984s] byte-compiling /rosadapter/install/adaptor_pkg/lib/python3.12/site-packages/adaptor_pkg/adaptor.py to adaptor.cpython-312.pyc
+[0.985s] byte-compiling /rosadapter/install/adaptor_pkg/lib/python3.12/site-packages/adaptor_pkg/__init__.py to __init__.cpython-312.pyc
+[0.985s] running install_data
+[0.986s] creating /rosadapter/install/adaptor_pkg/share/ament_index
+[0.986s] creating /rosadapter/install/adaptor_pkg/share/ament_index/resource_index
+[0.986s] creating /rosadapter/install/adaptor_pkg/share/ament_index/resource_index/packages
+[0.987s] copying resource/adaptor_pkg -> /rosadapter/install/adaptor_pkg/share/ament_index/resource_index/packages
+[0.987s] copying package.xml -> /rosadapter/install/adaptor_pkg/share/adaptor_pkg
+[0.987s] running install_egg_info
+[1.000s] Copying ../build/adaptor_pkg/adaptor_pkg.egg-info to /rosadapter/install/adaptor_pkg/lib/python3.12/site-packages/adaptor_pkg-0.0.0-py3.12.egg-info
+[1.002s] running install_scripts
+[1.091s] Installing adaptor script to /rosadapter/install/adaptor_pkg/lib/adaptor_pkg
+[1.092s] writing list of installed files to '/rosadapter/build/adaptor_pkg/install.log'
+[1.118s] Invoked command in '/rosadapter/adaptor_pkg' returned '0': PYTHONPATH=/rosadapter/build/adaptor_pkg/prefix_override:/usr/lib/python3/dist-packages/colcon_core/task/python/colcon_distutils_commands:/rosadapter/install/adaptor_pkg/lib/python3.12/site-packages:${PYTHONPATH} /usr/bin/python3 -W ignore:setup.py install is deprecated -W ignore:easy_install command is deprecated setup.py egg_info --egg-base ../build/adaptor_pkg build --build-base /rosadapter/build/adaptor_pkg/build install --record /rosadapter/build/adaptor_pkg/install.log --single-version-externally-managed install_data

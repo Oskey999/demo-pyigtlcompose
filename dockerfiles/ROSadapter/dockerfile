@@ -11,6 +11,16 @@ RUN apt-get update && apt-get install -y \
     python3-colcon-common-extensions \
     && rm -rf /var/lib/apt/lists/*
 
+    # Install MoveIt dependencies
+    RUN apt-get update && apt-get install -y \
+        ros-jazzy-moveit \
+        ros-jazzy-moveit-msgs \
+        ros-jazzy-moveit-core \
+        # ros-jazzy-moveit-commander \
+        ros-jazzy-geometric-shapes \
+        && rm -rf /var/lib/apt/lists/*
+
+
 # Create workspace
 WORKDIR /rosadapter
 

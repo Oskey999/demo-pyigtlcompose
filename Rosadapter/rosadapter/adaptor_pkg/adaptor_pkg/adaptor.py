@@ -62,8 +62,8 @@ from std_msgs.msg import Header, String
 
 # ── Configuration ─────────────────────────────────────────────────────────────
 
-PLANNING_GROUP   = "manipulator"        # MoveIt planning group (from SRDF)
-END_EFFECTOR     = "end_effector_link"  # Confirmed from SRDF chain tip_link
+PLANNING_GROUP   = "ur_manipulator"     # MoveIt planning group (from UR5e SRDF)
+END_EFFECTOR     = "tool0"              # UR5e tip link (replaces Kinova's end_effector_link)
 BASE_FRAME       = "base_link"          # Robot base frame
 PLANNING_TIME    = 10.0                 # Max seconds for planner
 NUM_RETRIES      = 5                    # Replan attempts on failure
@@ -71,10 +71,10 @@ VELOCITY_SCALING = 0.3                  # 0.0–1.0
 ACCEL_SCALING    = 0.3                  # 0.0–1.0
 
 PIPELINE_ID = "ompl"
-PLANNER_ID  = "RRTConnectkConfigDefault"
+PLANNER_ID  = "RRTConnect"             # Kinova used named config "RRTConnectkConfigDefault"; UR5e uses plain RRTConnect
 
 POSITION_TOLERANCE    = 0.05   # metres
-CONSTRAIN_ORIENTATION = False  # enable once position-only moves succeed
+CONSTRAIN_ORIENTATION =True  # enable once position-only moves succeed
 ORIENTATION_TOLERANCE = 0.1    # radians (~5.7 deg)
 
 # Incoming /magfield_transform poses are in world frame (metres).
@@ -91,9 +91,9 @@ POSITION_SCALE = 1.0
 #      frame) to convert them into base_link coordinates before sending to
 #      MoveIt.
 #
-BASE_OFFSET_X = -0.40   # metres — positive = move robot in +X world direction
+BASE_OFFSET_X = 0.0   # metres — positive = move robot in +X world direction
 BASE_OFFSET_Y = -0.40   # metres — positive = move robot in +Y world direction
-BASE_OFFSET_Z = -0.60   # metres — positive = raise robot in +Z world direction
+BASE_OFFSET_Z = -0.3  # metres — positive = raise robot in +Z world direction
 
 
 # ── Node ──────────────────────────────────────────────────────────────────────

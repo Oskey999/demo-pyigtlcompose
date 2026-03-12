@@ -108,6 +108,9 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     --mount=type=cache,target=/var/lib/apt,sharing=locked \
     cd /opt/ws_moveit \
     && apt-get update \
+    && apt-get install -y ros-${ROS_DISTRO}-ur \
+    ros-${ROS_DISTRO}-ur-robot-driver \
+    ros-${ROS_DISTRO}-ur-moveit-config \
     && rosdep install -r --from-paths . --ignore-src --rosdistro ${ROS_DISTRO} -y \
     && echo "Dependencies installed successfully"
 
@@ -153,16 +156,33 @@ RUN echo 'source /opt/ros/'${ROS_DISTRO}'/setup.bash' >> /config/.bashrc \
     && echo '[ -f /opt/ws_moveit/install/setup.bash ] && source /opt/ws_moveit/install/setup.bash' >> /config/.bashrc
 
 ## Create a script to start demo (accessible by all users)
+## NOTE: In Jazzy ur_robot_driver the argument is use_mock_hardware (not use_fake_hardware).
+## We wait for scaled_joint_trajectory_controller to be 'active' (not just /joint_states)
+## because /joint_states appears as soon as joint_state_broadcaster starts, but MoveIt
+## needs scaled_joint_trajectory_controller to be fully active before it can execute.
+## On autostart these activate at slightly different times, causing a race condition.
+## sleep 10 gives XFCE/display time to initialise before ROS nodes start.
 RUN echo '#!/bin/bash\n\
+sleep 10\n\
 source /opt/ros/'${ROS_DISTRO}'/setup.bash\n\
 if [ -f /opt/ws_moveit/install/setup.bash ]; then\n\
     source /opt/ws_moveit/install/setup.bash\n\
-    cd /opt/ws_moveit/\n\
-    ros2 launch moveit2_tutorials demo.launch.py\n\
-else\n\
-    echo "ERROR: MoveIt workspace not built. Please rebuild the container."\n\
-    exit 1\n\
-fi' > /usr/local/bin/start-demo.sh \
+fi\n\
+echo "Starting UR5e control stack (mock hardware)..."\n\
+ros2 launch ur_robot_driver ur_control.launch.py \\\n\
+    ur_type:=ur5e \\\n\
+    use_mock_hardware:=true \\\n\
+    robot_ip:=0.0.0.0 \\\n\
+    launch_rviz:=false &\n\
+echo "Waiting for scaled_joint_trajectory_controller to become active..."\n\
+until ros2 control list_controllers 2>/dev/null | grep -q "scaled_joint_trajectory_controller.*active"; do\n\
+    sleep 1\n\
+done\n\
+echo "Controllers ready. Launching MoveIt + RViz..."\n\
+ros2 launch ur_moveit_config ur_moveit.launch.py \\\n\
+    ur_type:=ur5e \\\n\
+    launch_rviz:=true\n\
+' > /usr/local/bin/start-demo.sh \
     && chmod +x /usr/local/bin/start-demo.sh
 
 ## Create a workspace info script
@@ -201,15 +221,26 @@ RUN echo 'echo "ROS2 MoveIt workspace ready at ~/ws_moveit"' >> /config/.bashrc 
 
 ## Set entrypoint script to launch MoveIt demo on container start
 RUN echo '#!/bin/bash\n\
-source /opt/ros/jazzy/setup.bash\n\
+sleep 10\n\
+source /opt/ros/'${ROS_DISTRO}'/setup.bash\n\
 if [ -f /opt/ws_moveit/install/setup.bash ]; then\n\
     source /opt/ws_moveit/install/setup.bash\n\
-    cd /opt/ws_moveit\n\
-    ros2 launch moveit2_tutorials demo.launch.py\n\
-else\n\
-    echo "ERROR: MoveIt workspace not built"\n\
-    exit 1\n\
-fi' > /usr/local/bin/entrypoint.sh \
+fi\n\
+echo "Starting UR5e control stack (mock hardware)..."\n\
+ros2 launch ur_robot_driver ur_control.launch.py \\\n\
+    ur_type:=ur5e \\\n\
+    use_mock_hardware:=true \\\n\
+    robot_ip:=0.0.0.0 \\\n\
+    launch_rviz:=false &\n\
+echo "Waiting for scaled_joint_trajectory_controller to become active..."\n\
+until ros2 control list_controllers 2>/dev/null | grep -q "scaled_joint_trajectory_controller.*active"; do\n\
+    sleep 1\n\
+done\n\
+echo "Controllers ready. Launching MoveIt + RViz..."\n\
+ros2 launch ur_moveit_config ur_moveit.launch.py \\\n\
+    ur_type:=ur5e \\\n\
+    launch_rviz:=true\n\
+' > /usr/local/bin/entrypoint.sh \
     && chmod +x /usr/local/bin/entrypoint.sh
 
 # ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]

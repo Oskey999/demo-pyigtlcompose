@@ -180,10 +180,12 @@ RUN cd /root/slicer/modules && \
 # DCMTK CID 7261 codes: 113211=Deterministic, 113212=Probabilistic,
 #                        113213=Global, 113217=Bootstrap
 RUN sed -i \
-    -e 's/CODE_DCM_Deterministic/DSRBasicCodedEntry("113211", "DCM", "Deterministic")/g' \
-    -e 's/CODE_DCM_Probabilistic/DSRBasicCodedEntry("113212", "DCM", "Probabilistic")/g' \
-    -e 's/CODE_DCM_Global/DSRBasicCodedEntry("113213", "DCM", "Global")/g' \
-    -e 's/CODE_DCM_Bootstrap/DSRBasicCodedEntry("113217", "DCM", "Bootstrap")/g' \
+    -e 's/CODE_DCM_DeterministicTrackingAlgorithm/DSRBasicCodedEntry("113211", "DCM", "Deterministic")/g' \
+    -e 's/CODE_DCM_ProbabilisticTrackingAlgorithm/DSRBasicCodedEntry("113212", "DCM", "Probabilistic")/g' \
+    -e 's/CODE_DCM_GlobalTrackingAlgorithm/DSRBasicCodedEntry("113213", "DCM", "Global")/g' \
+    -e 's/CODE_DCM_BootstrapTrackingAlgorithm/DSRBasicCodedEntry("113217", "DCM", "Bootstrap")/g' \
+    -e 's/^#ifdef DSRBasicCodedEntry(.*$/#if 1/' \
+    -e 's/^#ifndef DSRBasicCodedEntry(.*$/#if 0/' \
     /root/slicer/modules/SlicerDMRI/Modules/Loadable/TractIO/TractIOCLI/VTK_to_DICOMTract.cxx
 
 RUN cd /root/slicer/modules && \
@@ -291,6 +293,14 @@ RUN apt-get update && apt-get install -y --no-install-recommends python3-pip \
     && pip3 install --quiet trimesh numpy pycollada
 COPY dockerfiles/optimized/convertmesh.py /root/convertmesh.py
 RUN python3 /root/convertmesh.py
+
+# Also convert ur_description meshes (installed via apt, not ros2_ws).
+# Same trimesh approach as convertmesh.py — overwrite each .dae in-place with
+# binary STL content so filenames and URDF package:// references are unchanged.
+RUN apt-get update && apt-get install -y --no-install-recommends ros-humble-ur-description \
+    && rm -rf /var/lib/apt/lists/*
+COPY dockerfiles/optimized/convertmesh_ur.py /root/convertmesh_ur.py
+RUN python3 /root/convertmesh_ur.py
 #     && python3 -c " \
 # import trimesh, glob, os, sys \
 # files = glob.glob('/root/ros2_ws/install/**/*.dae', recursive=True) \
@@ -381,8 +391,18 @@ RUN apt-get update && apt-get install -y \
     ros-humble-xacro \
     ros-humble-moveit-msgs \
     ros-humble-object-recognition-msgs \
+    ros-humble-ur-description \
     python3-colcon-common-extensions \
     && rm -rf /var/lib/apt/lists/*
+
+# Overwrite the apt-installed ur_description meshes with the pre-converted
+# STL-format files built in the builder stage. The builder installed
+# ros-humble-ur-description and ran the same trimesh conversion used for
+# Kortex/Robotiq — overwriting each .dae in-place with binary STL content
+# while keeping the filename so all URDF package:// URIs still resolve.
+# SlicerROS2 uses vtkSTLReader for all meshes regardless of extension, so
+# the files must contain STL data, not COLLADA XML.
+COPY --from=slicer-builder /opt/ros/humble/share/ur_description/meshes /opt/ros/humble/share/ur_description/meshes
 
 # Source ROS Humble automatically for all shell sessions
 RUN echo 'source /opt/ros/humble/setup.bash' >> /etc/bash.bashrc && \

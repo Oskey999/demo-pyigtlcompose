@@ -202,6 +202,31 @@ services:
   #   shm_size: "1gb"
   #   restart: unless-stopped
 
+  recorder:
+    build:
+      context: ./dockerfiles/recorder        # put the Dockerfile + recorder.py here
+    image: tms-recorder
+    container_name: tms-recorder
+    environment:
+      # Comma-separated list of compose service names to auto-record
+      - CONTAINERS=rossim,optimized
+      # Must match VNC_PW in SlicerApp (and whatever ROSsim uses)
+      - VNC_PASSWORD=yourpassword
+      - VNC_PORT=5901
+      - OUTPUT_DIR=/recordings
+      - FPS=24
+      - AUTO_RECORD=1
+    volumes:
+      - ./recordings:/recordings             # recordings appear here on host
+    ports:
+      - "8080:8080"                          # REST API (optional — remove if unneeded)
+    depends_on:
+      - ROSsim
+      - SlicerApp
+    restart: unless-stopped
+    networks:
+      - tms-network
+
 networks:
   tms-network:
     driver: bridge

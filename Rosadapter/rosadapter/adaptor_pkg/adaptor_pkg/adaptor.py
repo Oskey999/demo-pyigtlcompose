@@ -33,6 +33,8 @@ Usage:
 """
 
 import xml.etree.ElementTree as ET
+import os
+import requests
 
 import rclpy
 import rclpy.parameter
@@ -94,6 +96,19 @@ POSITION_SCALE = 1.0
 BASE_OFFSET_X = 0.0   # metres — positive = move robot in +X world direction
 BASE_OFFSET_Y = -0.40   # metres — positive = move robot in +Y world direction
 BASE_OFFSET_Z = -0.3  # metres — positive = raise robot in +Z world direction
+
+
+# ── Phosphobot Physical Arm Configuration ──────────────────────────────────────
+#
+# Settings for sending synchronized commands to a physical arm running phosphobot.
+# Incoming poses are converted: metres → centimetres (× 100), then scaled to 1/10th.
+#
+PHOSPHOBOT_ENABLED      = os.getenv("PHOSPHOBOT_ENABLED", "true").lower() == "true"
+PHOSPHOBOT_HOST         = os.getenv("PHOSPHOBOT_HOST", "localhost")
+PHOSPHOBOT_PORT         = int(os.getenv("PHOSPHOBOT_PORT", "80"))
+PHOSPHOBOT_BASE_URL     = f"http://{PHOSPHOBOT_HOST}:{PHOSPHOBOT_PORT}"
+PHOSPHOBOT_DISTANCE_SCALE = 1.0 / 10.0  # Move 1/10th of prescribed distance
+PHOSPHOBOT_TIMEOUT      = 5.0  # seconds
 
 
 # ── Node ──────────────────────────────────────────────────────────────────────
@@ -286,6 +301,72 @@ class MagfieldMoveItController(Node):
         except (LookupException, ConnectivityException, ExtrapolationException) as e:
             self.get_logger().warn(f"TF2 lookup failed (EE pose unavailable): {e}")
 
+    # ── Phosphobot synchronization ─────────────────────────────────────────────
+
+    def _send_to_phosphobot(self, pose: Pose):
+        """
+        Send a goal pose to the physical arm running phosphobot.
+        Conversion: metres → centimetres (× 100), then scale to 1/10th distance.
+        Additional +10cm Y offset and +5cm Z offset for phosphobot arm clearance.
+        """
+        if not PHOSPHOBOT_ENABLED:
+            return
+
+        try:
+            # Apply additional offsets for phosphobot arm clearance
+            # Since scaling is 1/10th, we add 1.0m for +10cm and 0.5m for +5cm
+            y_with_offset = pose.position.y + 0.0  # +10cm in phosphobot coords
+            z_with_offset = pose.position.z + 1.5  # +5cm in phosphobot coords
+            
+            # Convert from metres to centimetres and apply 1/10th scaling
+            x_cm = pose.position.x * 100.0 * PHOSPHOBOT_DISTANCE_SCALE
+            y_cm = y_with_offset * 100.0 * PHOSPHOBOT_DISTANCE_SCALE
+            z_cm = z_with_offset * 100.0 * PHOSPHOBOT_DISTANCE_SCALE
+
+            # Use minimal payload format that matches test script
+            payload = {
+                "x": x_cm,
+                "y": y_cm,
+                "z": z_cm
+            }
+
+            url = f"{PHOSPHOBOT_BASE_URL}/move/absolute"
+            self.get_logger().info(
+                f"Sending to phosphobot ({PHOSPHOBOT_HOST}:{PHOSPHOBOT_PORT}): "
+                f"x={x_cm:.2f}cm, y={y_cm:.2f}cm, z={z_cm:.2f}cm"
+            )
+
+            response = requests.post(url, json=payload, timeout=PHOSPHOBOT_TIMEOUT)
+            response.raise_for_status()
+            
+            # Log response details for debugging
+            try:
+                response_data = response.json()
+                self.get_logger().info(f"Phosphobot response: {response_data}")
+            except:
+                self.get_logger().info(
+                    f"Phosphobot command sent (HTTP {response.status_code})"
+                )
+
+        except requests.exceptions.ConnectionError:
+            self.get_logger().warn(
+                f"Failed to connect to phosphobot at {PHOSPHOBOT_BASE_URL} — "
+                f"is the service running?"
+            )
+        except requests.exceptions.Timeout:
+            self.get_logger().warn(
+                f"Phosphobot request timed out ({PHOSPHOBOT_TIMEOUT}s)"
+            )
+        except requests.exceptions.HTTPError as e:
+            try:
+                error_data = e.response.json()
+                self.get_logger().error(f"Phosphobot HTTP error: {error_data}")
+            except:
+                self.get_logger().error(f"Phosphobot HTTP error: {e.response.status_code} - {e.response.text}")
+        except Exception as e:
+            self.get_logger().error(f"Error sending to phosphobot: {e}")
+
+
     # ── Pose callback ─────────────────────────────────────────────────────────
 
     def _pose_callback(self, msg: Pose):
@@ -306,16 +387,21 @@ class MagfieldMoveItController(Node):
         # ── 2. Print the live end-effector pose from TF ───────────────────────
         self._log_current_ee_pose()
 
+        # ── 3a. Send to physical arm IMMEDIATELY (before MoveIt checks)
+        # This ensures phosphobot gets commands even if MoveIt is busy or fails
+        self._send_to_phosphobot(msg)
+
+        # ── 3b. Skip MoveIt planning if a move is already in progress
         if self._moving:
-            self.get_logger().warn("Move in progress — skipping pose.")
+            self.get_logger().warn("Move in progress — skipping MoveIt planning.")
             return
 
-        # ── 3. Scale from sensor units to metres ──────────────────────────────
+        # ── 4. Scale from sensor units to metres ──────────────────────────────
         scaled_x = msg.position.x * POSITION_SCALE
         scaled_y = msg.position.y * POSITION_SCALE
         scaled_z = msg.position.z * POSITION_SCALE
 
-        # ── 4. Convert world frame -> base_link frame ─────────────────────────
+        # ── 5. Convert world frame -> base_link frame ─────────────────────────
         #
         # /magfield_transform is in the same world frame as the GUI.
         # BASE_OFFSET defines where base_link sits in that world frame, so

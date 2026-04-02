@@ -1,0 +1,4 @@
+# No heavy deps needed — ffmpeg does the heavy lifting
+# Add these if you want the HTTP health-check or REST control API
+flask>=3.0
+requests>=2.31

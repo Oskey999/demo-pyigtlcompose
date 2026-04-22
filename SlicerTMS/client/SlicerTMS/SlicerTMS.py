@@ -195,14 +195,31 @@ class SlicerTMSWidget(ScriptedLoadableModuleWidget):
         """Load the selected example and notify the server"""
         debug_print(f"Loading selected example: {self.selectedExample}")
         
-        # Send example selection to server first
-        self.sendExampleToServer()
-        
-        # Load example in Slicer
-        data_dir = get_tms_value('TMS_DATA_DIR', '../data')
-        example_path = os.path.join(data_dir, self.selectedExample)
-        self.loader = L.Loader.loadExample(example_path)
-        # L.Loader.loadExample(example_path)  # ← store on self to prevent GC
+        try:
+            # Send example selection to server first
+            self.sendExampleToServer()
+            
+            # Load example in Slicer
+            data_dir = get_tms_value('TMS_DATA_DIR', '../data')
+            example_path = os.path.join(data_dir, self.selectedExample)
+            
+            debug_print(f"Debug: L module type: {type(L)}")
+            debug_print(f"Debug: L module dir: {dir(L)}")
+            debug_print(f"Debug: Checking for Loader class in L...")
+            
+            if hasattr(L, 'Loader'):
+                debug_print(f"✓ Loader class found in module")
+                debug_print(f"  Loader class type: {type(L.Loader)}")
+                self.loader = L.Loader.loadExample(example_path)
+            else:
+                debug_print(f"✗ ERROR: Loader class NOT found in module!")
+                debug_print(f"  Available attributes: {[x for x in dir(L) if not x.startswith('_')]}")
+                raise AttributeError(f"Loader class not found in L module. Available: {dir(L)}")
+                
+        except Exception as e:
+            debug_print(f"✗ ERROR in loadExampleWithSelection: {e}")
+            debug_print(traceback.format_exc())
+            raise
 
     def setupButtons(self):
         debug_print("-" * 40)

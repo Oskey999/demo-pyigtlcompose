@@ -3,5 +3,5 @@
 - added example selection
 - added debugging print statements all over the code
 - changes to stop loader going to garbage collection
-
-- todo, publish transforms of coil for rosadaptor
+- publish transforms of coil for rosadaptor
+- writes to evaluations.csv for namesake

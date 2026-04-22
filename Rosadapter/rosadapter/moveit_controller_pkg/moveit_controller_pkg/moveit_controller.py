@@ -1,10 +1,9 @@
 #!/usr/bin/env python3
 """
-Magfield → MoveIt Controller
-=============================
+MoveIt Controller for UR5e Robot
+=================================
 Subscribes to /magfield_transform (geometry_msgs/Pose), scales the incoming
-position, then plans and executes a move of the Kinova Gen3 end-effector via
-MoveGroup.
+position, then plans and executes a move of the UR5e end-effector via MoveGroup.
 
 Also subscribes to /robot_description (std_msgs/String) to patch the URDF
 with BASE_OFFSET applied to the world -> base_link joint origin, then exposes
@@ -12,7 +11,7 @@ the result as a parameter on this node so a GUI (e.g. SlicerROS2) can
 visualise the robot at the correct position.
 
 GUI settings:
-  Node name      : magfield_moveit_controller
+  Node name      : moveit_controller
   Parameter name : robot_description
 
 Incoming /magfield_transform poses are assumed to be in the *world* frame.
@@ -24,7 +23,7 @@ Usage:
   ros2 launch moveit2_tutorials demo.launch.py
 
   # Terminal 2 — this node
-  python3 magfield_moveit_controller.py
+  ros2 run moveit_controller_pkg moveit_controller
 
   # Terminal 3 — publish a test pose
   ros2 topic pub --once /magfield_transform geometry_msgs/msg/Pose \
@@ -34,7 +33,6 @@ Usage:
 
 import xml.etree.ElementTree as ET
 import os
-import requests
 
 import rclpy
 import rclpy.parameter
@@ -57,8 +55,6 @@ from moveit_msgs.msg import (
     Constraints,
     MoveItErrorCodes,
     PlanningOptions,
-    CollisionObject,
-    PlanningScene,
 )
 from shape_msgs.msg import SolidPrimitive
 from std_msgs.msg import Header, String
@@ -67,18 +63,18 @@ from std_msgs.msg import Header, String
 # ── Configuration ─────────────────────────────────────────────────────────────
 
 PLANNING_GROUP   = "ur_manipulator"     # MoveIt planning group (from UR5e SRDF)
-END_EFFECTOR     = "tool0"              # UR5e tip link (replaces Kinova's end_effector_link)
+END_EFFECTOR     = "tool0"              # UR5e tip link
 BASE_FRAME       = "base_link"          # Robot base frame
-PLANNING_TIME    = 20.0                 # Max seconds for planner (increased for obstacle avoidance)
-NUM_RETRIES      = 10                   # Replan attempts on failure (increased from 5)
+PLANNING_TIME    = 10.0                 # Max seconds for planner
+NUM_RETRIES      = 5                    # Replan attempts on failure
 VELOCITY_SCALING = 0.3                  # 0.0–1.0
 ACCEL_SCALING    = 0.3                  # 0.0–1.0
 
 PIPELINE_ID = "ompl"
-PLANNER_ID  = "RRTConnect"             # Kinova used named config "RRTConnectkConfigDefault"; UR5e uses plain RRTConnect
+PLANNER_ID  = "RRTConnect"
 
-POSITION_TOLERANCE    = 0.10   # metres — increased to give planner flexibility around obstacles
-CONSTRAIN_ORIENTATION = True  # Disable to simplify planning around obstacles; enable once paths work
+POSITION_TOLERANCE    = 0.05   # metres
+CONSTRAIN_ORIENTATION = True   # enable once position-only moves succeed
 ORIENTATION_TOLERANCE = 0.1    # radians (~5.7 deg)
 
 # Incoming /magfield_transform poses are in world frame (metres).
@@ -98,81 +94,14 @@ POSITION_SCALE = 1.0
 BASE_OFFSET_X = 0.0   # metres — positive = move robot in +X world direction
 BASE_OFFSET_Y = -0.40   # metres — positive = move robot in +Y world direction
 BASE_OFFSET_Z = -0.3  # metres — positive = raise robot in +Z world direction
-HEAD_OFFSET_Z = 0.08  # metres — vertical distance slicer coordinate system to center of skin model
-HEAD_OFFSET_X = -0.0055    # metres — sideways distance slicer coordinate system to center of skin model
-HEAD_OFFSET_Y = -0.0245    # metres — forward distance slicer coordinate system to center of skin model
-
-# ── Forbidden collision zones ──────────────────────────────────────────────────
-#
-# Define no-go zones where the robot arm cannot intersect.
-# Positions are specified in the INCOMING MESSAGE FRAME (same as /magfield_transform).
-# They are automatically transformed to world frame using POSITION_SCALE and BASE_OFFSET,
-# similar to how pose_callback transforms incoming messages.
-#
-# Transformation applied (same as pose_callback in reverse):
-#   world_x = (message_x * POSITION_SCALE) - BASE_OFFSET_X
-#   world_y = (message_y * POSITION_SCALE) - BASE_OFFSET_Y
-#   world_z = (message_z * POSITION_SCALE) - BASE_OFFSET_Z
-#
-# Layout (in message frame):
-#   - Rectangle (box) with TOP surface at z=0, centered at (x=0, y=0)
-#   - Sphere with BOTTOM surface touching rectangle's TOP
-#
-
-# Rectangle (box) dimensions: width (x), depth (y), height (z)
-RECT_WIDTH  = 0.24   # X dimension (metres)
-RECT_DEPTH  = 0.14   # Y dimension (metres)
-RECT_HEIGHT = 1.0   # Z dimension (metres)
-
-# Sphere radius
-SPHERE_RADIUS = 0.08  # metres
-
-# Rectangle center in MESSAGE FRAME: positioned so its top surface touches sphere bottom
-# Sphere bottom is at HEAD_OFFSET_Z - SPHERE_RADIUS, so rectangle center is at:
-rect_center_z_msg = HEAD_OFFSET_Z - SPHERE_RADIUS - (RECT_HEIGHT / 2)
-
-# Sphere center in MESSAGE FRAME: now at HEAD_OFFSET coordinates
-sphere_center_z_msg = HEAD_OFFSET_Z
-
-# Transform from message frame to world frame (same logic as pose_callback)
-def transform_to_world(msg_pos):
-    """Transform position from message frame to world frame."""
-    scaled_x = msg_pos[0] / POSITION_SCALE
-    scaled_y = msg_pos[1] / POSITION_SCALE
-    scaled_z = msg_pos[2] / POSITION_SCALE
-    world_x = scaled_x - BASE_OFFSET_X/ POSITION_SCALE
-    world_y = scaled_y - BASE_OFFSET_Y/ POSITION_SCALE
-    world_z = scaled_z - BASE_OFFSET_Z/ POSITION_SCALE
-    return (world_x, world_y, world_z)
-
-# Collision objects defined in MESSAGE FRAME, then transformed to WORLD FRAME
-sphere_world_pos = transform_to_world((HEAD_OFFSET_X, HEAD_OFFSET_Y, HEAD_OFFSET_Z))
-rect_world_pos = transform_to_world((HEAD_OFFSET_X, HEAD_OFFSET_Y, rect_center_z_msg))  # Rectangle centered under sphere
-
-COLLISION_OBJECTS = [
-    # Forbidden sphere zone — bottom touches rectangle top (in message frame: z=0.15)
-    {
-        "name": "forbidden_sphere",
-        "type": "sphere",
-        "position": sphere_world_pos,  # Transformed to world frame
-        "radius": SPHERE_RADIUS,
-    },
-    # Forbidden rectangular zone — top surface at z=0 in message frame
-    {
-        "name": "forbidden_box",
-        "type": "box",
-        "position": rect_world_pos,  # Transformed to world frame
-        "dimensions": (RECT_WIDTH, RECT_DEPTH, RECT_HEIGHT),  # x, y, z
-    },
-]
 
 
 # ── Node ──────────────────────────────────────────────────────────────────────
 
-class MagfieldMoveItController(Node):
+class MoveItController(Node):
 
     def __init__(self):
-        super().__init__("magfield_moveit_controller")
+        super().__init__("moveit_controller")
 
         # TF2 buffer + listener — used to read the live end-effector pose
         self._tf_buffer   = tf2_ros.Buffer()
@@ -190,7 +119,7 @@ class MagfieldMoveItController(Node):
         # Declare "robot_description" as a parameter on this node so the GUI
         # can monitor it directly.  Starts empty; filled once the URDF arrives.
         # GUI settings:
-        #   Node name      : magfield_moveit_controller
+        #   Node name      : moveit_controller
         #   Parameter name : robot_description
         self.declare_parameter("robot_description", "")
 
@@ -225,14 +154,6 @@ class MagfieldMoveItController(Node):
         self._action_client.wait_for_server()
         self.get_logger().info("MoveGroup action server connected")
 
-        # Planning scene publisher — for adding collision objects (forbidden zones)
-        self._planning_scene_pub = self.create_publisher(
-            PlanningScene, "/planning_scene", 1
-        )
-        # Give the publisher a moment to establish before sending messages
-        self.create_timer(0.5, self._add_collision_objects_once)
-        self._collision_objects_added = False
-
         self._moving = False
 
         self.create_subscription(
@@ -242,81 +163,6 @@ class MagfieldMoveItController(Node):
             10,
         )
         self.get_logger().info("Listening on /magfield_transform ...")
-
-    # ── Collision objects: setup forbidden zones ──────────────────────────────
-
-    def _add_collision_objects_once(self):
-        """
-        Add collision objects (forbidden zones) to the planning scene.
-        Called once via timer after initialization.
-        """
-        if self._collision_objects_added:
-            return
-        self._collision_objects_added = True
-
-        planning_scene = PlanningScene()
-        planning_scene.name = "default_planning_scene"
-        planning_scene.is_diff = True
-
-        for obj_config in COLLISION_OBJECTS:
-            collision_obj = self._create_collision_object(obj_config)
-            planning_scene.world.collision_objects.append(collision_obj)
-            self.get_logger().info(
-                f"Added collision object '{obj_config['name']}' "
-                f"(type: {obj_config['type']}) to planning scene"
-            )
-
-        # Publish to planning scene
-        self._planning_scene_pub.publish(planning_scene)
-        self.get_logger().info(
-            f"Published {len(COLLISION_OBJECTS)} collision object(s) to planning scene"
-        )
-
-    def _create_collision_object(self, config: dict) -> CollisionObject:
-        """
-        Create a CollisionObject message from a configuration dict.
-        
-        Args:
-            config: dict with keys:
-                - "name": str (object name)
-                - "type": "sphere" or "box"
-                - "position": (x, y, z) tuple in world frame
-                - "radius": float (for sphere)
-                - "dimensions": (x, y, z) tuple (for box)
-        
-        Returns:
-            CollisionObject message ready to add to planning scene
-        """
-        collision_obj = CollisionObject()
-        collision_obj.id = config["name"]
-        collision_obj.header.frame_id = "world"
-        collision_obj.operation = CollisionObject.ADD
-
-        # Create shape primitive and pose
-        primitive = SolidPrimitive()
-        pose = Pose()
-        pose.position.x, pose.position.y, pose.position.z = config["position"]
-        pose.orientation.x = 0.0
-        pose.orientation.y = 0.0
-        pose.orientation.z = 0.0
-        pose.orientation.w = 1.0  # Identity rotation
-
-        if config["type"] == "sphere":
-            primitive.type = SolidPrimitive.SPHERE
-            primitive.dimensions = [config["radius"]]
-        elif config["type"] == "box":
-            primitive.type = SolidPrimitive.BOX
-            # BOX dimensions are [x_size, y_size, z_size]
-            primitive.dimensions = list(config["dimensions"])
-        else:
-            self.get_logger().error(
-                f"Unknown collision object type: {config['type']}"
-            )
-            return collision_obj
-
-        collision_obj.primitives = [primitive]
-        collision_obj.primitive_poses = [pose]
-        return collision_obj
 
     # ── Robot description: parse, patch, set parameter ────────────────────────
 
@@ -392,7 +238,7 @@ class MagfieldMoveItController(Node):
 
         self.get_logger().info(
             "Patched URDF set as parameter 'robot_description' on node "
-            "'magfield_moveit_controller' and published on /robot_description_offset"
+            "'moveit_controller' and published on /robot_description_offset"
         )
 
     # ── TF broadcast ─────────────────────────────────────────────────────────
@@ -439,8 +285,6 @@ class MagfieldMoveItController(Node):
             )
         except (LookupException, ConnectivityException, ExtrapolationException) as e:
             self.get_logger().warn(f"TF2 lookup failed (EE pose unavailable): {e}")
-
-
 
     # ── Pose callback ─────────────────────────────────────────────────────────
 
@@ -602,7 +446,7 @@ class MagfieldMoveItController(Node):
 
 def main(args=None):
     rclpy.init(args=args)
-    node = MagfieldMoveItController()
+    node = MoveItController()
     try:
         rclpy.spin(node)
     except KeyboardInterrupt:

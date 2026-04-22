@@ -5,12 +5,206 @@ import numpy as np
 from vtk.util.numpy_support import vtk_to_numpy
 from vtk.util.numpy_support import numpy_to_vtk
 import SimpleITK as sitk
+import time
 import timeit
+import csv
+from datetime import datetime
+import json
+
+
+def load_env_file(env_file=None):
+    """
+    Load environment variables from a .env file.
+    Looks for TMSCOM.env in common locations.
+    """
+    if env_file is None:
+        # Try to find TMSCOM.env in common locations
+        possible_paths = [
+            '/root/TMSCOM.env',
+            '/app/TMSCOM.env',
+            '/workspace/TMSCOM.env',
+            os.path.expanduser('~/TMSCOM.env'),
+            './TMSCOM.env',
+            '../../../TMSCOM.env',
+        ]
+        
+        for path in possible_paths:
+            if os.path.exists(path):
+                env_file = path
+                break
+    
+    if env_file and os.path.exists(env_file):
+        try:
+            with open(env_file, 'r') as f:
+                for line in f:
+                    line = line.strip()
+                    if line and not line.startswith('#') and '=' in line:
+                        key, value = line.split('=', 1)
+                        os.environ[key.strip()] = value.strip()
+            print(f"Loaded environment from {env_file}")
+            return True
+        except Exception as e:
+            print(f"Warning: Could not load {env_file}: {e}")
+    
+    return False
+
+
+# Load environment file at import time
+load_env_file()
+
 
 class Mapper:
     def __init__(self, config=None):
         self.config = config
         print("Mapper class initialized")
+
+    @staticmethod
+    def record_simulation_event(matrix_4x4, event_type, csv_path=None):
+        """
+        Record simulation start/end events.
+        Uses file locking and atomic operations to prevent race conditions.
+        """
+        import fcntl  # For file locking (Unix only)
+        
+        try:
+            if csv_path is None:
+                csv_path = os.environ.get('RESULTS_CSV_PATH', '/app/evaluations/results.csv')
+            
+            csv_dir = os.path.dirname(csv_path)
+            if csv_dir and not os.path.exists(csv_dir):
+                os.makedirs(csv_dir, mode=0o777, exist_ok=True)
+            
+            timestamp = datetime.now().isoformat()
+            matrix_values = [matrix_4x4.GetElement(i, j) for i in range(4) for j in range(4)]
+            matrix_str = ";".join(f"{v:.10f}" for v in matrix_values)
+            
+            file_exists = os.path.exists(csv_path) and os.path.getsize(csv_path) > 0
+            
+            if event_type == "start":
+                # Use append mode with locking
+                row_data = {
+                    'timestamp': timestamp,
+                    'start_time': timestamp,
+                    'end_time': '',
+                    'start_matrix': matrix_str,
+                    'end_matrix': '',
+                    'execution_time_sec': ''
+                }
+                
+                with open(csv_path, 'a', newline='', encoding='utf-8') as f:
+                    # Get exclusive lock
+                    try:
+                        fcntl.flock(f.fileno(), fcntl.LOCK_EX)
+                    except:
+                        pass  # Continue without lock if not available
+                    
+                    # Detect fieldnames from existing file
+                    if file_exists:
+                        with open(csv_path, 'r', encoding='utf-8') as rf:
+                            reader = csv.DictReader(rf)
+                            fieldnames = reader.fieldnames or list(row_data.keys())
+                    else:
+                        fieldnames = list(row_data.keys())
+                    
+                    writer = csv.DictWriter(f, fieldnames=fieldnames, extrasaction='ignore')
+                    if not file_exists:
+                        writer.writeheader()
+                    writer.writerow(row_data)
+                    
+                    try:
+                        fcntl.flock(f.fileno(), fcntl.LOCK_UN)
+                    except:
+                        pass
+                
+                print(f"✓ Recorded START at {timestamp}")
+                
+            elif event_type == "end":
+                if not file_exists:
+                    print("Warning: CSV doesn't exist for end event")
+                    return
+                
+                # Use a lock file to coordinate with update.py
+                lock_path = csv_path + '.mapper.lock'
+                max_retries = 10
+                retry_delay = 0.1
+                
+                for attempt in range(max_retries):
+                    try:
+                        # Try to acquire lock
+                        with open(lock_path, 'x') as lock_f:
+                            lock_f.write('mapper')
+                            
+                            # Read current state
+                            with open(csv_path, 'r', newline='', encoding='utf-8') as f:
+                                reader = csv.DictReader(f)
+                                fieldnames = reader.fieldnames or []
+                                rows = list(reader)
+                            
+                            if not rows:
+                                os.remove(lock_path)
+                                return
+                            
+                            # Find most recent incomplete row
+                            target_idx = None
+                            for idx, row in enumerate(reversed(rows)):
+                                if not row.get('end_time'):
+                                    target_idx = len(rows) - 1 - idx
+                                    break
+                            
+                            if target_idx is None:
+                                os.remove(lock_path)
+                                return
+                            
+                            # Update the row - preserve ALL existing fields
+                            rows[target_idx]['end_time'] = timestamp
+                            rows[target_idx]['end_matrix'] = matrix_str
+                            
+                            try:
+                                start_dt = datetime.fromisoformat(rows[target_idx]['start_time'])
+                                end_dt = datetime.fromisoformat(timestamp)
+                                rows[target_idx]['execution_time_sec'] = f"{(end_dt - start_dt).total_seconds():.3f}"
+                            except:
+                                rows[target_idx]['execution_time_sec'] = "0.000"
+                            
+                            # Ensure all fieldnames are preserved
+                            for row in rows:
+                                for fn in fieldnames:
+                                    if fn not in row:
+                                        row[fn] = ''
+                            
+                            # Write back with ALL fieldnames
+                            with open(csv_path, 'w', newline='', encoding='utf-8') as f:
+                                writer = csv.DictWriter(f, fieldnames=fieldnames)
+                                writer.writeheader()
+                                writer.writerows(rows)
+                            
+                            os.remove(lock_path)
+                            print(f"✓ Recorded END at {timestamp}, duration: {rows[target_idx]['execution_time_sec']}s")
+                            break  # Success!
+                            
+                    except FileExistsError:
+                        # Lock held by update.py, wait and retry
+                        time.sleep(retry_delay)
+                        continue
+                    except Exception as e:
+                        print(f"  Attempt {attempt+1} failed: {e}")
+                        time.sleep(retry_delay)
+                        try:
+                            os.remove(lock_path)
+                        except:
+                            pass
+            
+            try:
+                os.chmod(csv_path, 0o666)
+                if csv_dir:
+                    os.chmod(csv_dir, 0o777)
+            except:
+                pass
+                
+        except Exception as e:
+            print(f"✗ Error recording {event_type} event: {e}")
+            import traceback
+            traceback.print_exc()
 
     @classmethod
     def map(cls, loader, time=True):
@@ -19,6 +213,9 @@ class Mapper:
         matrixFromFid = vtk.vtkMatrix4x4()
         loader.markupsPlaneNode.GetObjectToWorldMatrix(matrixFromFid)
         print("Retrieved object-to-world matrix from markups plane node")
+        
+        # Record simulation start event
+        cls.record_simulation_event(matrixFromFid, "start")
         
         loader.transformNode.SetMatrixTransformToParent(matrixFromFid)
         print("Set matrix transform to parent")
@@ -179,6 +376,11 @@ class Mapper:
             execution_time = stop - start
             # print("Resampling + Mapping Executed in " + str(execution_time) + " seconds.")
             print(f"Resampling + Mapping executed in {execution_time} seconds")
+        
+        # # Record simulation end event
+        # finalMatrix = vtk.vtkMatrix4x4()
+        # loader.transformNode.GetMatrixTransformToParent(finalMatrix)
+        # cls.record_simulation_event(finalMatrix, "end")
             
         print("Completed map method")
 
@@ -337,5 +539,20 @@ class Mapper:
             print("Jumped all slices to maximum point")
         except Exception as e:
             print(f"Error jumping to max point: {e}")
+        
+        # print("Completed modifyIncomingImage method")
+        try:
+            pyigtl_data_image = sitkUtils.PullVolumeFromSlicer(loader.pyigtlNode)
+            # ... existing code ...
+            
+            slicer.vtkMRMLSliceNode.JumpAllSlices(slicer.mrmlScene, *max_point[0:3])
+            print("Jumped all slices to maximum point")
+        except Exception as e:
+            print(f"Error jumping to max point: {e}")
+        
+        # Record simulation end event HERE - after full processing is complete
+        finalMatrix = vtk.vtkMatrix4x4()
+        loader.transformNode.GetMatrixTransformToParent(finalMatrix)
+        Mapper.record_simulation_event(finalMatrix, "end")
         
         print("Completed modifyIncomingImage method")

@@ -1,0 +1,179 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ui version="4.0">
+ <class>adjustpos</class>
+ <widget class="qMRMLWidget" name="adjustpos">
+  <property name="geometry">
+   <rect>
+    <x>0</x>
+    <y>0</y>
+    <width>1314</width>
+    <height>818</height>
+   </rect>
+  </property>
+  <layout class="QVBoxLayout" name="verticalLayout">
+   <item>
+    <layout class="QHBoxLayout" name="horizontalLayout_2">
+     <item>
+      <widget class="QLabel" name="portlabel">
+       <property name="text">
+        <string>COM Port</string>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <layout class="QVBoxLayout" name="verticalLayout_2">
+       <item>
+        <widget class="QComboBox" name="port"/>
+       </item>
+       <item>
+        <widget class="QPushButton" name="refreshPORTButton">
+         <property name="text">
+          <string>Refresh</string>
+         </property>
+        </widget>
+       </item>
+      </layout>
+     </item>
+    </layout>
+   </item>
+   <item>
+    <layout class="QVBoxLayout" name="top">
+     <item>
+      <layout class="QHBoxLayout" name="target_input">
+       <item>
+        <widget class="QLabel" name="targ_text">
+         <property name="text">
+          <string>Head Target Mesh Name</string>
+         </property>
+        </widget>
+       </item>
+       <item>
+        <widget class="QLineEdit" name="targ">
+         <property name="text">
+          <string>skin</string>
+         </property>
+        </widget>
+       </item>
+      </layout>
+     </item>
+     <item>
+      <layout class="QHBoxLayout" name="coil_input">
+       <item>
+        <widget class="QLabel" name="coil_text">
+         <property name="text">
+          <string>Coil Target Name</string>
+         </property>
+        </widget>
+       </item>
+       <item>
+        <widget class="QLineEdit" name="coil">
+         <property name="text">
+          <string>Coil</string>
+         </property>
+        </widget>
+       </item>
+      </layout>
+     </item>
+     <item>
+      <layout class="QHBoxLayout" name="conditions">
+       <item>
+        <widget class="QLabel" name="inc">
+         <property name="text">
+          <string>Move increment</string>
+         </property>
+        </widget>
+       </item>
+       <item>
+        <widget class="QDoubleSpinBox" name="acc">
+         <property name="maximum">
+          <double>360.000000000000000</double>
+         </property>
+         <property name="singleStep">
+          <double>0.100000000000000</double>
+         </property>
+         <property name="value">
+          <double>1.000000000000000</double>
+         </property>
+        </widget>
+       </item>
+      </layout>
+     </item>
+     <item>
+      <widget class="QLabel" name="Debug">
+       <property name="text">
+        <string>test</string>
+       </property>
+      </widget>
+     </item>
+    </layout>
+   </item>
+   <item>
+    <layout class="QGridLayout" name="controller">
+     <item row="1" column="0">
+      <widget class="QPushButton" name="left">
+       <property name="text">
+        <string>left</string>
+       </property>
+      </widget>
+     </item>
+     <item row="1" column="1">
+      <layout class="QHBoxLayout" name="inner">
+       <item>
+        <widget class="QPushButton" name="inb">
+         <property name="text">
+          <string>in</string>
+         </property>
+        </widget>
+       </item>
+       <item>
+        <widget class="QPushButton" name="out">
+         <property name="text">
+          <string>out</string>
+         </property>
+        </widget>
+       </item>
+      </layout>
+     </item>
+     <item row="0" column="1">
+      <widget class="QPushButton" name="up">
+       <property name="text">
+        <string>up</string>
+       </property>
+      </widget>
+     </item>
+     <item row="3" column="1">
+      <widget class="QPushButton" name="down">
+       <property name="text">
+        <string>down</string>
+       </property>
+      </widget>
+     </item>
+     <item row="1" column="2">
+      <widget class="QPushButton" name="right">
+       <property name="text">
+        <string>right</string>
+       </property>
+      </widget>
+     </item>
+     <item row="4" column="1">
+      <widget class="QPushButton" name="runSequence">
+       <property name="text">
+        <string>Run Sequence</string>
+       </property>
+      </widget>
+     </item>
+    </layout>
+   </item>
+  </layout>
+ </widget>
+ <customwidgets>
+  <customwidget>
+   <class>qMRMLWidget</class>
+   <extends>QWidget</extends>
+   <header>qMRMLWidget.h</header>
+   <container>1</container>
+  </customwidget>
+ </customwidgets>
+ <resources/>
+ <connections/>
+</ui>

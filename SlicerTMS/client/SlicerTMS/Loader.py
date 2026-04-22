@@ -6,6 +6,7 @@ import numpy as np
 import Rendering as ren
 import Mapper as M
 
+__all__ = ['Loader']
 
 class Loader:
 
@@ -189,9 +190,9 @@ class Loader:
         print('New CNN Image received via PyIgtl')
         M.Mapper.modifyIncomingImage(self)
 
-#  this was @staticmethod before?
+#  Factory method to load example
     @classmethod
-    def loadExample(self, example_path):
+    def loadExample(cls, example_path):
         print(f"Starting loadExample with path: {example_path}")
         print('Your selected Example: ' + example_path)
         data_directory = os.path.join(os.path.dirname(slicer.modules.slicertms.path), '../', example_path)

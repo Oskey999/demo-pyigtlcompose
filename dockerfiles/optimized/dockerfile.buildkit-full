@@ -494,6 +494,25 @@ RUN cd /root/slicer/modules && \
     ls -la "${SLICER_DIR}"/lib/data/ && \
     echo "=== SlicerTMS installation complete ==="
 
+#
+# AdjustPos extension under CoilTransform
+#
+COPY coiltransform/coiltransform /root/slicer/modules/coiltransform
+RUN cd /root/slicer/modules && \
+    SLICER_DIR=$(find /root/slicer/packages -maxdepth 1 -type d -name "Slicer-*" | head -1) && \
+    echo "=== Installing AdjustPos extension ===" && \
+    echo "=== Contents of adjustpos directory ===" && \
+    ls -la coiltransform/adjustpos/ && \
+    echo "=== Creating qt-scripted-modules directory ===" && \
+    mkdir -p "${SLICER_DIR}"/lib/Slicer-5.8/qt-scripted-modules && \
+    echo "=== Copying AdjustPos module file ===" && \
+    cp coiltransform/adjustpos/adjustpos.py "${SLICER_DIR}"/lib/Slicer-5.8/qt-scripted-modules/ && \
+    echo "=== Copying AdjustPos Resources ===" && \
+    cp -r coiltransform/adjustpos/Resources "${SLICER_DIR}"/lib/Slicer-5.8/qt-scripted-modules/ && \
+    echo "=== Verifying installation ===" && \
+    ls -la "${SLICER_DIR}"/lib/Slicer-5.8/qt-scripted-modules/ | grep -E "adjustpos|Resources" && \
+    echo "=== AdjustPos installation complete ==="
+
 RUN cd /root \
     && chmod 755 start-slicer-ros2.bash
 

@@ -90,27 +90,35 @@ services:
     networks:
       - tms-network
 
-  ROSadapter:
-    image: rosadapter
-    container_name: rosadapter
+  ROSadapter_MoveIt:
+    image: rosadapter_moveit
+    container_name: rosadapter_moveit
     build:
       context: .
       dockerfile: dockerfiles/ROSadapter/dockerfile
-    volumes:
-      - ./Rosadapter:/Rosadapter
     mem_limit: 4g
     memswap_limit: 4g
+    restart: unless-stopped
+    networks:
+      - tms-network
+    #   - /dev/dri:/dev/dri
+
+  ROSadapter_Phosphobot:
+    image: rosadapter_phosphobot
+    container_name: rosadapter_phosphobot
+    build:
+      context: .
+      dockerfile: dockerfiles/ROSadapter_Phosphobot/Dockerfile
+    mem_limit: 2g
+    memswap_limit: 2g
     restart: unless-stopped
     networks:
       - tms-network
     environment:
       # Phosphobot physical arm synchronization
       - PHOSPHOBOT_ENABLED=true
-      - PHOSPHOBOT_HOST=host.docker.internal
+      - PHOSPHOBOT_HOST=192.168.86.27
       - PHOSPHOBOT_PORT=80
-    # Optional: GPU support if available
-    # devices:
-    #   - /dev/dri:/dev/dri
 
   # Amalgui:
   #   build:
@@ -177,6 +185,7 @@ services:
       - TMS_SERVER_HOST=tmsserver
       - TMS_SERVER_PORT_1=18944
       - TMS_SERVER_PORT_2=18945
+      - RESULTS_CSV_PATH=/app/evaluations/results.csv
     # volumes:
     #   - /path/to/data:/config
     ports:
@@ -193,6 +202,25 @@ services:
       - tms-network
     volumes:
     - ./SlicerTMS/data:/root/slicer/packages/Slicer-*/lib/Slicer-5.8/qt-scripted-modules/data
+    - ./evaluations:/app/evaluations
+
+  stats-monitor:
+    image: python:3.11-slim
+    container_name: stats-monitor
+    working_dir: /workspace
+    volumes:
+      - ./evaluations:/workspace
+      - /var/run/docker.sock:/var/run/docker.sock
+    environment:
+      - RESULTS_CSV_PATH=/workspace/results.csv
+      - PYTHONUNBUFFERED=1
+    entrypoint: ["/bin/sh", "-c"]
+    command: ["chmod +x /workspace/init-permissions.sh && /workspace/init-permissions.sh && pip install --quiet docker && python -u update.py"]
+    restart: unless-stopped
+    networks:
+      - tms-network
+    depends_on:
+      - tmsserver
 
     
   # webtop:

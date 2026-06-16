@@ -1,6 +1,17 @@
 version: '3.8'
 
 services:
+
+  s101sim:
+    build:
+      context: .
+      dockerfile: dockerfiles/S101sim/dockerfile
+    image: so101-arm-sim:latest
+    container_name: so101armsim
+    ports:
+      - "3004:3000"
+
+
   tmsserver:
     build:
       context: .
@@ -20,7 +31,7 @@ services:
     networks:
       - tms-network
     volumes:
-    - ./SlicerTMS/data:/app/data
+      - ./SlicerTMS/data:/app/data
       
     # healthcheck:
     #   test: ["CMD", "python3", "test_port_connectivity.py", "localhost", "18944", "18945"]
@@ -66,6 +77,7 @@ services:
     container_name: rossim
     build:
       context: .
+      # dockerfile: dockerfiles/ROS2armsim/Dockerfile.ros2-jazzy-webvnc
       dockerfile: dockerfiles/ROS2armsim/Dockerfile.buildkit.fixed
       # Add build arguments for memory control
       shm_size: 2gb
@@ -79,6 +91,7 @@ services:
       - TZ=Australia/Perth
       - SUBFOLDER=/
       - TITLE=ROS2 Simulator
+      - ROS_DOMAIN_ID=0
     volumes:
         - ./config:/config
         - ./dockerfiles/ROS2armsim/data/moveit2_tutorials:/opt/ws_moveit/src/moveit2_tutorials
@@ -96,6 +109,8 @@ services:
     build:
       context: .
       dockerfile: dockerfiles/ROSadapter/dockerfile
+    environment:
+      - ROS_DOMAIN_ID=0
     mem_limit: 4g
     memswap_limit: 4g
     restart: unless-stopped
@@ -115,6 +130,7 @@ services:
     networks:
       - tms-network
     environment:
+      - ROS_DOMAIN_ID=0
       # Phosphobot physical arm synchronization
       - PHOSPHOBOT_ENABLED=true
       - PHOSPHOBOT_HOST=192.168.86.27
@@ -172,7 +188,7 @@ services:
     build:
       context: .
       dockerfile: dockerfiles/optimized/dockerfile.buildkit-full
-    image: optimized
+    image: oskey999/slicer_gui:latest
     container_name: optimized 
     environment:
       #username kasm_user 
@@ -192,6 +208,7 @@ services:
       - 3002:6900
       - 3003:6901
       - 5901:5901
+      - 4902:4902
     shm_size: "1gb"
     stdin_open: true
     tty: true
@@ -201,8 +218,8 @@ services:
     networks:
       - tms-network
     volumes:
-    - ./SlicerTMS/data:/root/slicer/packages/Slicer-*/lib/Slicer-5.8/qt-scripted-modules/data
-    - ./evaluations:/app/evaluations
+      - ./SlicerTMS/data:/root/slicer/packages/Slicer-*/lib/Slicer-5.8/qt-scripted-modules/data
+      - ./evaluations:/app/evaluations
 
   stats-monitor:
     image: python:3.11-slim

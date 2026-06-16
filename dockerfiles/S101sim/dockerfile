@@ -1,0 +1,77 @@
+# ── ROS 2 Jazzy container with lerobot-ros workspace ──────────────────────────
+# Uses official ros:jazzy base image which already includes ROS 2 setup.
+# Builds lerobot-ros (SO-101 description + controller + MoveIt config) workspace.
+# This container owns the MoveGroup action server, robot_state_publisher, 
+# and ros2_control hardware interface.
+FROM ros:jazzy
+
+ENV DEBIAN_FRONTEND=noninteractive
+ENV DEBIAN_PRIORITY=critical
+ENV TERM=linux
+
+# ── System packages ────────────────────────────────────────────────────────────
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    python3-pip \
+    python3-colcon-common-extensions \
+    python3-rosdep \
+    git \
+    # MoveIt 2 — move_group server, OMPL planner, RViz plugin
+    ros-jazzy-moveit \
+    ros-jazzy-moveit-ros-move-group \
+    ros-jazzy-moveit-planners-ompl \
+    # ros2_control stack used by lerobot-ros SO-101 controller
+    ros-jazzy-ros2-control \
+    ros-jazzy-ros2-controllers \
+    ros-jazzy-gripper-controllers \
+    # TF2
+    ros-jazzy-tf2-ros \
+    ros-jazzy-tf2-geometry-msgs \
+    # Serial — needed by the Feetech STS3215 servo bus driver inside lerobot
+    python3-serial \
+ && rm -rf /var/lib/apt/lists/*
+
+# Give the container user read/write access to serial devices.
+# The host passes through the device node; membership of the dialout group
+# (GID 20 on Ubuntu, matches the host default) allows non-root access.
+RUN usermod -aG dialout root
+
+# ── Build lerobot-ros workspace ────────────────────────────────────────────────
+WORKDIR /ros2_ws/src
+RUN git clone https://github.com/ycheng517/lerobot-ros.git
+
+# topic_based_ros2_control is only released for Humble and Rolling — must be
+# built from source for Jazzy.  Pinned to main; lerobot-ros depends on it.
+RUN git clone https://github.com/PickNikRobotics/topic_based_ros2_control.git
+
+WORKDIR /ros2_ws
+# Initialize rosdep before running rosdep update
+RUN rm -f /etc/ros/rosdep/sources.list.d/20-default.list && rosdep init || true
+
+# Run rosdep only against lerobot-ros — topic_based_ros2_control's real runtime
+# deps (ros2-control, ros2-controllers) are already installed via apt above, and
+# its remaining declared deps are PickNik-internal packages that don't exist in
+# the public Jazzy apt repo, so scanning it would always fail.
+RUN . /opt/ros/jazzy/setup.sh && \
+    rosdep update && \
+    rosdep install --from-paths src/lerobot-ros --ignore-src -r -y
+
+# --cmake-args -DBUILD_TESTING=OFF: topic_based_ros2_control's CMakeLists.txt
+# calls find_package(ros_testing) unconditionally unless testing is disabled.
+# ros_testing is not available as a Jazzy deb, so tests must be turned off.
+RUN . /opt/ros/jazzy/setup.sh && \
+    colcon build --symlink-install --cmake-args -DBUILD_TESTING=OFF
+
+# ── Python packages ────────────────────────────────────────────────────────────
+RUN pip3 install --break-system-packages --ignore-installed \
+        --timeout 300 --retries 5 \
+        lerobot pyserial
+
+# ── Entrypoint ─────────────────────────────────────────────────────────────────
+COPY dockerfiles/S101sim/entrypoint.ros.sh /entrypoint.sh
+RUN chmod +x /entrypoint.sh
+
+ENTRYPOINT ["/entrypoint.sh"]
+
+# The entrypoint script reads USE_REAL_HARDWARE and SERIAL_DEVICE at runtime
+# to decide between simulation and real hardware launch.
+# Set these via docker-compose environment / .env — do not override CMD.

@@ -289,7 +289,7 @@ class ResultsCSVUpdater:
                     writer.writerows(rows)
                 time.sleep(0.05)
                 os.chmod(self.csv_path, 0o666)
-                print(f"✅ Wrote {len(rows)} rows")
+                print(f" Wrote {len(rows)} rows")
                 return True
             except Exception as e:
                 print(f"  Write attempt {attempt+1} failed: {e}")

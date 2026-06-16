@@ -7,7 +7,7 @@
 
 # Using NVIDIA CUDA runtime as base for GPU support
 # The application will automatically detect and use available GPUs
-FROM nvidia/cuda:12.3.0-runtime-ubuntu22.04
+FROM nvidia/cuda:12.1.0-cudnn8-runtime-ubuntu22.04
 
 # Install Python 3.10 and system dependencies
 RUN apt-get update -y && apt-get install -y \
@@ -29,16 +29,14 @@ ARG dpath=dockerfiles/tmsserver
 RUN ln -s /usr/bin/python3 /usr/bin/python
 # Install Python packages with CUDA support for GPU access
 # PyTorch with CUDA 12 support - will auto-detect GPU at runtime
-RUN pip install --no-cache-dir \
-    vtk pyigtl nibabel && \
-    pip install --no-cache-dir --index-url https://download.pytorch.org/whl/cu121 torch torchvision torchaudio 2>&1 | grep -v "Hashes\|does not match" || true
+RUN pip install --no-cache-dir vtk pyigtl nibabel && \
+    pip install --no-cache-dir \
+        --index-url https://download.pytorch.org/whl/cu121 \
+        torch torchvision torchaudio
 
 
 
 
-# ...existing code...
-
-# ...existing code...
 ARG spath=SlicerTMS
 COPY ${spath}/server /app/server
 # COPY ${spath}/data /app/data
@@ -46,6 +44,7 @@ RUN mkdir -p /app/data
 COPY test_port_connectivity.py /app/test_port_connectivity.py
 COPY test_network_debug.sh /app/test_network_debug.sh
 WORKDIR /app
+COPY SlicerTMS/data /app/data
 
 # Make test scripts executable
 RUN chmod +x /app/test_network_debug.sh

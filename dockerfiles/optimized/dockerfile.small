@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1.4
 
 #
-# Build stage: Compile 3D Slicer from source + modules
+# Build stage: Compile 3D Slicer from source + modules (OPTIMIZED FOR SIZE)
 #
 FROM ubuntu:22.04 AS slicer-builder
 
@@ -297,10 +297,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends ros-humble-ur-d
     && rm -rf /var/lib/apt/lists/*
 COPY dockerfiles/optimized/convertmesh_ur.py /root/convertmesh_ur.py
 RUN python3 /root/convertmesh_ur.py
-#  && \
-#     echo "=== Verifying UR mesh conversion ===" && \
-#     file /opt/ros/humble/share/ur_description/meshes/ur5e/visual/base.dae && \
-#     xxd /opt/ros/humble/share/ur_description/meshes/ur5e/visual/base.dae | head -2
 
 # Install mold linker - required for SlicerROS2 linking step
 RUN apt-get update && apt-get install -y --no-install-recommends mold \
@@ -326,6 +322,48 @@ RUN --mount=type=cache,target=/cache/ccache \
     cd inner-build && \
     make package && \
     mv *.tar.gz /root/slicer/packages/
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# AGGRESSIVE CLEANUP TO REDUCE IMAGE SIZE
+# ═══════════════════════════════════════════════════════════════════════════════
+RUN echo "=== Starting aggressive cleanup ===" && \
+    echo "=== Before cleanup: ===" && \
+    du -sh /root/slicer/ 2>/dev/null | head -1 && \
+    \
+    echo "=== Removing build directories ===" && \
+    rm -rf /root/slicer/Slicer-SuperBuild-Release/CMakeFiles && \
+    rm -rf /root/slicer/Slicer-SuperBuild-Release/Slicer-build/CMakeFiles && \
+    rm -rf /root/slicer/modules/*/build && \
+    rm -rf /root/slicer/modules/*-build/CMakeFiles && \
+    \
+    echo "=== Removing source code directories ===" && \
+    rm -rf /root/slicer/Slicer && \
+    rm -rf /root/slicer/modules/Slicer* && \
+    rm -rf /root/slicer/modules/SlicerDMRI && \
+    rm -rf /root/slicer/modules/SlicerOpenIGTLink && \
+    rm -rf /root/slicer/modules/SlicerIGSIO && \
+    rm -rf /root/slicer/modules/SlicerIGT && \
+    rm -rf /root/slicer/modules/SlicerParallelProcessing && \
+    \
+    echo "=== Removing ROS2 workspace source ===" && \
+    rm -rf /root/ros2_ws/src && \
+    rm -rf /root/ros2_ws/build && \
+    rm -rf /root/ros2_ws/log && \
+    \
+    echo "=== Stripping binaries ===" && \
+    find /root/slicer/packages -type f \( -name "Slicer" -o -executable -type f \) -exec strip --strip-all {} + 2>/dev/null || true && \
+    \
+    echo "=== Removing unnecessary files ===" && \
+    find /root/slicer/packages -type f \( -name "*.o" -o -name "*.a" -o -name "*.cmake" -o -name "CMakeCache.txt" \) -delete && \
+    find /root/slicer/packages -type d -name "__pycache__" -exec rm -rf {} + 2>/dev/null || true && \
+    find /root/slicer/packages -type d -name ".git" -exec rm -rf {} + 2>/dev/null || true && \
+    \
+    echo "=== Removing pip cache ===" && \
+    rm -rf /root/.cache/pip && \
+    \
+    echo "=== After cleanup: ===" && \
+    du -sh /root/slicer/ 2>/dev/null | head -1 && \
+    du -sh /root/ros2_ws/install 2>/dev/null | head -1
 
 #
 # Final stage: Copy built Slicer + modules into the webtop image
@@ -437,9 +475,6 @@ RUN echo 'source /opt/ros/humble/setup.bash' >> /etc/bash.bashrc && \
 # Copy all built packages from builder stage
 COPY --from=slicer-builder /root/slicer/packages /root/slicer/packages
 
-# Copy the built ROS2 workspace (includes SlicerROS2 module)
-# COPY --from=slicer-builder /root/ros2_ws /root/ros2_ws
-
 # Copy kortex_description and robotiq_description install directories from builder.
 # These provide the mesh files (.dae) needed to resolve package://kortex_description/...
 # and package://robotiq_description/... URIs from robot_description messages sent by rossim.
@@ -484,14 +519,6 @@ RUN cd /root/slicer/packages && \
             echo "=== Successfully installed $module ===" ; \
         fi \
     done
-
-# Install SlicerROS2 loadable module into Slicer
-# Copy pre-built SlicerROS2 module from builder
-# COPY --from=slicer-builder /root/slicer/ros2_module_install /root/slicer/ros2_module_install
-
-# # Install into Slicer
-# RUN SLICER_DIR=$(find /root/slicer/packages -maxdepth 1 -type d -name "Slicer-*" | head -1) &&
-#     cp -r /root/slicer/ros2_module_install/. "${SLICER_DIR}/"
 
 #
 # SlicerTMS (Python scripted module) - FIXED VERSION

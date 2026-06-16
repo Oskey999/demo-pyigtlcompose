@@ -12,27 +12,42 @@ RUN apt-get update && apt-get install -y \
     python3-colcon-common-extensions \
     && rm -rf /var/lib/apt/lists/*
 
-    # Install MoveIt dependencies
-    RUN apt-get update && apt-get install -y \
-        ros-jazzy-moveit \
-        ros-jazzy-moveit-msgs \
-        ros-jazzy-moveit-core \
-        # ros-jazzy-moveit-commander \
-        ros-jazzy-geometric-shapes \
-        && rm -rf /var/lib/apt/lists/*
-
+# Install MoveIt dependencies (required for MoveIt controller)
+# Also install libfastcdr-dev to ensure FastRTPS serialization libs are available
+RUN apt-get update && apt-get install -y \
+    ros-jazzy-moveit \
+    ros-jazzy-moveit-msgs \
+    ros-jazzy-moveit-core \
+    ros-jazzy-geometric-shapes \
+    libfastcdr-dev \
+    && rm -rf /var/lib/apt/lists/*
 
 # Create workspace
 WORKDIR /rosadapter
 
-# Create ROS2 package
-# RUN /bin/bash -c "source /opt/ros/jazzy/setup.bash && ros2 pkg create --build-type ament_python --license Apache-2.0 --node-name adaptor adaptor_pkg"
+# Copy workspace
 COPY ./Rosadapter ./rosadapter
-# Build workspace
-RUN /bin/bash -c "source /opt/ros/jazzy/setup.bash && colcon build"
 
-# Source setup and run node
-RUN echo "source /opt/ros/jazzy/setup.bash" >> ~/.bashrc
-RUN colcon build
-RUN /bin/bash -c "source install/setup.bash"
-CMD ["bash", "-c", "source install/setup.bash && ros2 run adaptor_pkg adaptor"]
+# Build workspace (clean, proper build)
+RUN /bin/bash -c "source /opt/ros/jazzy/setup.bash && colcon build 2>&1" || exit 1
+
+# Verify build succeeded
+RUN test -d install/adaptor_pkg || (echo 'Build failed!' && exit 1)
+
+# Debug: Check what was actually installed
+RUN echo "=== Installed structure ===" && \
+    ls -la install/ && \
+    echo "=== Adaptor lib directory ===" && \
+    ls -la install/adaptor_pkg/lib/ || true && \
+    echo "=== Adaptor bin directory ===" && \
+    ls -la install/adaptor_pkg/bin/ || true
+
+# Set LD_LIBRARY_PATH to ensure FastRTPS libs are found at runtime
+ENV LD_LIBRARY_PATH=/opt/ros/jazzy/lib:/rosadapter/install/adaptor_pkg/lib:$LD_LIBRARY_PATH
+ENV RMW_IMPLEMENTATION=rmw_fastrtps_cpp
+
+# Setup entrypoint to ensure proper environment
+RUN echo '#!/bin/bash\nset -e\nsource /opt/ros/jazzy/setup.bash\nsource /rosadapter/install/setup.bash\nexport LD_LIBRARY_PATH=/opt/ros/jazzy/lib:$LD_LIBRARY_PATH\necho "Launching MoveIt adaptor controller..."\nros2 run adaptor_pkg adaptor' > /.entrypoint.sh && \
+    chmod +x /.entrypoint.sh
+
+ENTRYPOINT ["/.entrypoint.sh"]

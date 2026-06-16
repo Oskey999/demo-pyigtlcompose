@@ -1,40 +1,58 @@
 # syntax=docker/dockerfile:1.4
-## Docker container for simulating a robot arm using ROS2 and Gazebo
-## Based on ubuntu desktop with XFCE and web access
-## Fixed D-Bus and PolicyKit permission issues
-## BuildKit optimized for faster builds
-## Fixed permissions for abc user (UID 1000)
-
-# Use Ubuntu 24.04 with ROS 2 Jazzy
-#https://moveit.picknik.ai/main/index.html
-#https://docs.linuxserver.io/images/docker-webtop/#version-tags
-FROM linuxserver/webtop:ubuntu-xfce
+FROM ubuntu:24.04
 
 ENV ROS_DISTRO=jazzy
-ARG DEBIAN_FRONTEND=noninteractive
+ENV DEBIAN_FRONTEND=noninteractive
+ENV DISPLAY=:1
+ENV LANG=en_US.UTF-8
+ENV LC_ALL=en_US.UTF-8
+ENV DBUS_SESSION_BUS_ADDRESS=unix:path=/dev/null
+ENV NO_AT_BRIDGE=1
+ENV CCACHE_DIR=/tmp/ccache
 
-## Web access port
 EXPOSE 3000
 
-## Install ROS2 Jazzy with BuildKit cache mounts for faster rebuilds
-RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
-    --mount=type=cache,target=/var/lib/apt,sharing=locked \
-    apt-get update && apt-get install -y \
-    gnupg2 lsb-release curl software-properties-common locales \
+## ── Step 1: Base system + desktop + VNC + noVNC ──────────────────────────────
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    locales \
+    supervisor \
+    xfce4 \
+    xfce4-terminal \
+    xfce4-screensaver \
+    dbus-x11 \
+    x11-xserver-utils \
+    tigervnc-standalone-server \
+    tigervnc-common \
+    tigervnc-tools \
+    novnc \
+    websockify \
+    libgl1 \
+    libglx-mesa0 \
+    libgl1-mesa-dri \
+    mesa-utils \
+    curl \
+    gnupg2 \
+    lsb-release \
+    software-properties-common \
     && locale-gen en_US en_US.UTF-8 \
     && update-locale LC_ALL=en_US.UTF-8 LANG=en_US.UTF-8 \
-    && export LANG=en_US.UTF-8 \
-    && curl -sSL https://raw.githubusercontent.com/ros/rosdistro/master/ros.key -o /usr/share/keyrings/ros-archive-keyring.gpg \
-    && echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/ros-archive-keyring.gpg] http://packages.ros.org/ros2/ubuntu $(lsb_release -cs) main" | tee /etc/apt/sources.list.d/ros2.list > /dev/null
+    && rm -rf /var/lib/apt/lists/*
 
-## Install ROS2 packages (separate layer for better caching)
+## ── Step 2: ROS2 Jazzy apt repository ───────────────────────────────────────
+RUN curl -sSL https://raw.githubusercontent.com/ros/rosdistro/master/ros.key \
+    -o /usr/share/keyrings/ros-archive-keyring.gpg \
+    && echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/ros-archive-keyring.gpg] \
+       http://packages.ros.org/ros2/ubuntu $(lsb_release -cs) main" \
+       > /etc/apt/sources.list.d/ros2.list
+
+## ── Step 3: ROS2 packages ────────────────────────────────────────────────────
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     --mount=type=cache,target=/var/lib/apt,sharing=locked \
     apt-get update && apt-get install -y \
     ros-${ROS_DISTRO}-desktop \
     ros-${ROS_DISTRO}-moveit
 
-## Load ROS2 environment and install build dependencies
+## ── Step 4: Build dependencies ───────────────────────────────────────────────
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     --mount=type=cache,target=/var/lib/apt,sharing=locked \
     apt-get update && apt-get install -y \
@@ -47,203 +65,286 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     cmake \
     ccache
 
-## Install additional GUI stability packages
-RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
-    --mount=type=cache,target=/var/lib/apt,sharing=locked \
-    apt-get update && apt-get install -y \
-    dbus-x11 \
-    libgl1 libglx-mesa0 \
-    libgl1-mesa-dri \
-    mesa-utils
-
-## Configure D-Bus to suppress PolicyKit and login1 errors
-## These services aren't needed in a container environment
-RUN mkdir -p /etc/dbus-1/system.d/ \
-    && echo '<!DOCTYPE busconfig PUBLIC "-//freedesktop//DTD D-BUS Bus Configuration 1.0//EN" \
- "http://www.freedesktop.org/standards/dbus/1.0/busconfig.dtd"> \
-<busconfig> \
-  <servicedir>/usr/share/dbus-1/system-services</servicedir> \
-  <servicehelper>/bin/false</servicehelper> \
-</busconfig>' > /etc/dbus-1/system.d/no-systemd.conf
-
-## Disable unnecessary D-Bus services in container
+## ── Step 5: D-Bus / PolicyKit suppression ────────────────────────────────────
+RUN mkdir -p /etc/dbus-1/system.d/
+COPY <<EOF /etc/dbus-1/system.d/no-systemd.conf
+<!DOCTYPE busconfig PUBLIC "-//freedesktop//DTD D-BUS Bus Configuration 1.0//EN"
+ "http://www.freedesktop.org/standards/dbus/1.0/busconfig.dtd">
+<busconfig>
+  <servicedir>/usr/share/dbus-1/system-services</servicedir>
+  <servicehelper>/bin/false</servicehelper>
+</busconfig>
+EOF
 RUN if [ -d /usr/share/dbus-1/system-services/ ]; then \
         cd /usr/share/dbus-1/system-services/ && \
-        for service in org.freedesktop.login1.service org.freedesktop.PolicyKit1.service; do \
-            if [ -f "$service" ]; then \
-                mv "$service" "$service.disabled" || true; \
-            fi; \
+        for svc in org.freedesktop.login1.service org.freedesktop.PolicyKit1.service; do \
+            [ -f "$svc" ] && mv "$svc" "$svc.disabled" || true; \
         done; \
     fi
 
-## Initialize rosdep (with cache mount for faster rebuilds)
-RUN --mount=type=cache,target=/tmp/ros-cache,sharing=locked \
-    rosdep init || true && rosdep update
+## ── Step 6: TigerVNC ─────────────────────────────────────────────────────────
+RUN mkdir -p /root/.vnc && touch /root/.vnc/passwd && chmod 600 /root/.vnc/passwd
+COPY <<EOF /root/.vnc/xstartup
+#!/bin/bash
+unset SESSION_MANAGER
+unset DBUS_SESSION_BUS_ADDRESS
+exec startxfce4
+EOF
+RUN chmod +x /root/.vnc/xstartup
+RUN sed -i 's/\r$//' /root/.vnc/xstartup
 
-## Install Colcon mixins (with cache mount)
-RUN --mount=type=cache,target=/tmp/colcon-cache,sharing=locked \
-    colcon mixin add default https://raw.githubusercontent.com/colcon/colcon-mixin-repository/master/index.yaml || true \
+## ── Step 7: Supervisor config ────────────────────────────────────────────────
+RUN mkdir -p /var/log/supervisor /etc/supervisor/conf.d && rm -f /etc/supervisor/conf.d/*
+COPY <<EOF /etc/supervisor/conf.d/webtop.conf
+[supervisord]
+nodaemon=true
+logfile=/var/log/supervisor/supervisord.log
+pidfile=/var/run/supervisord.pid
+user=root
+
+## Fix 1: Create XDG_RUNTIME_DIR before any other program starts.
+## Without this, Qt/RViz silently fail to create sockets even though
+## XDG_RUNTIME_DIR is set in the environment of later programs.
+[program:init-dirs]
+command=/bin/bash -c "mkdir -p /tmp/runtime-root && chmod 700 /tmp/runtime-root"
+autorestart=false
+startsecs=0
+priority=1
+stdout_logfile=/var/log/supervisor/init.log
+stderr_logfile=/var/log/supervisor/init.err.log
+
+[program:vncserver]
+command=/bin/bash -c "rm -f /tmp/.X1-lock /tmp/.X11-unix/X1 2>/dev/null; exec /usr/bin/vncserver :1 -geometry 1920x1080 -depth 24 -SecurityTypes None -fg"
+environment=HOME="/root"
+autorestart=true
+startsecs=2
+priority=10
+stdout_logfile=/var/log/supervisor/vnc.log
+stderr_logfile=/var/log/supervisor/vnc.err.log
+
+[program:novnc]
+command=/usr/share/novnc/utils/novnc_proxy --vnc localhost:5901 --listen 3000
+autorestart=true
+priority=20
+stdout_logfile=/var/log/supervisor/novnc.log
+stderr_logfile=/var/log/supervisor/novnc.err.log
+
+## Fix 2: Use scaled_joint_trajectory_controller instead of joint_trajectory_controller.
+## ur_moveit_config defaults to expecting scaled_joint_trajectory_controller for
+## execution. Mismatching the two means MoveIt can plan but the action server it
+## calls during execution doesn't exist, so every execution attempt fails.
+[program:ur-driver]
+command=/bin/bash -c "export AMENT_TRACE_SETUP_FILES=${AMENT_TRACE_SETUP_FILES:-}; source /opt/ros/jazzy/setup.bash; [ -f /opt/ws_moveit/install/setup.bash ] && source /opt/ws_moveit/install/setup.bash; exec ros2 launch ur_robot_driver ur_control.launch.py ur_type:=ur5e use_mock_hardware:=true robot_ip:=0.0.0.0 launch_rviz:=false initial_joint_controller:=scaled_joint_trajectory_controller"
+environment=DISPLAY=":1",HOME="/root",ROS_DISTRO="jazzy",LIBGL_ALWAYS_SOFTWARE="1",MESA_GL_VERSION_OVERRIDE="3.3",QT_X11_NO_MITSHM="1",XDG_RUNTIME_DIR="/tmp/runtime-root"
+autorestart=true
+priority=30
+startsecs=5
+stdout_logfile=/var/log/supervisor/ur_driver.log
+stderr_logfile=/var/log/supervisor/ur_driver.err.log
+
+## Fix 3: Poll for the controller to be active instead of using a fixed sleep.
+## A fixed 20s sleep is not reliable — if the driver is slow to start (common
+## in loaded containers) MoveIt registers "no controller available" permanently
+## for the session. Polling ensures MoveIt only starts when the action server
+## it needs is actually ready.
+##
+## Fix 4: Remove use_mock_hardware:=true from ur_moveit.launch.py.
+## Passing it here causes ur_moveit_config to bring up a second ros2_control
+## hardware interface that conflicts with the one already owned by ur_robot_driver.
+## The driver handles all mock hardware concerns; MoveIt just connects to it.
+[program:ur-moveit]
+command=/bin/bash -c "export AMENT_TRACE_SETUP_FILES=${AMENT_TRACE_SETUP_FILES:-}; source /opt/ros/jazzy/setup.bash; [ -f /opt/ws_moveit/install/setup.bash ] && source /opt/ws_moveit/install/setup.bash; echo '[ur-moveit] Waiting for scaled_joint_trajectory_controller to become active...'; until ros2 control list_controllers 2>/dev/null | grep -q 'scaled_joint_trajectory_controller.*active'; do sleep 3; done; echo '[ur-moveit] Controller active — starting MoveIt + RViz'; exec ros2 launch ur_moveit_config ur_moveit.launch.py ur_type:=ur5e launch_rviz:=true"
+environment=DISPLAY=":1",HOME="/root",ROS_DISTRO="jazzy",LIBGL_ALWAYS_SOFTWARE="1",MESA_GL_VERSION_OVERRIDE="3.3",QT_X11_NO_MITSHM="1",XDG_RUNTIME_DIR="/tmp/runtime-root"
+autorestart=true
+priority=40
+startsecs=10
+stdout_logfile=/var/log/supervisor/ur_moveit.log
+stderr_logfile=/var/log/supervisor/ur_moveit.err.log
+EOF
+
+## ── Step 8: Initialize rosdep ────────────────────────────────────────────────
+RUN rosdep init || true && rosdep update
+
+## ── Step 9: Colcon mixins ────────────────────────────────────────────────────
+RUN colcon mixin add default \
+    https://raw.githubusercontent.com/colcon/colcon-mixin-repository/master/index.yaml || true \
     && colcon mixin update default || true
 
-## Create workspace in /opt (accessible to all users) instead of /root
-## This is the KEY FIX - build in a shared location
-RUN mkdir -p /opt/ws_moveit/src
+## ── Step 10: Clone MoveIt workspace ──────────────────────────────────────────
+RUN mkdir -p /opt/ws_moveit/src \
+    && cd /opt/ws_moveit/src \
+    && git clone https://github.com/moveit/moveit2_tutorials
 
-## Clone tutorials (with git cache mount for faster cloning)
-RUN --mount=type=cache,target=/tmp/git-cache,sharing=locked \
-    cd /opt/ws_moveit/src \
-    && git clone https://github.com/moveit/moveit2_tutorials \
-    && echo "Tutorials cloned successfully"
-## Clone tutorials from data folder (already cloned locally)
-# COPY data/moveit2_tutorials /opt/ws_moveit/src/moveit2_tutorials
+RUN cd /opt/ws_moveit/src \
+    && vcs import --recursive < moveit2_tutorials/moveit2_tutorials.repos
 
-## Import dependencies (with git cache mount)
-RUN --mount=type=cache,target=/tmp/git-cache,sharing=locked \
-    cd /opt/ws_moveit/src \
-    && vcs import --recursive < moveit2_tutorials/moveit2_tutorials.repos \
-    && echo "Dependencies imported successfully"
-
-## Install rosdep dependencies (with apt cache)
+## ── Step 11: Install apt dependencies (UR + rosdep) ─────────────────────────
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     --mount=type=cache,target=/var/lib/apt,sharing=locked \
-    cd /opt/ws_moveit \
-    && apt-get update \
-    && apt-get install -y ros-${ROS_DISTRO}-ur \
-    ros-${ROS_DISTRO}-ur-robot-driver \
-    ros-${ROS_DISTRO}-ur-moveit-config \
-    && rosdep install -r --from-paths . --ignore-src --rosdistro ${ROS_DISTRO} -y \
-    && echo "Dependencies installed successfully"
-
-## Build Workspace with BuildKit cache mount for ccache
-## This dramatically speeds up rebuilds when source code changes
-RUN --mount=type=cache,target=/tmp/ccache,sharing=locked \
-    --mount=type=cache,target=/opt/ws_moveit/build,sharing=locked \
-    /bin/bash -c "export CCACHE_DIR=/tmp/ccache \
-    && source /opt/ros/${ROS_DISTRO}/setup.bash \
+    apt-get update \
+    && apt-get install -y \
+        ros-${ROS_DISTRO}-ur \
+        ros-${ROS_DISTRO}-ur-robot-driver \
+        ros-${ROS_DISTRO}-ur-moveit-config \
     && cd /opt/ws_moveit \
-    && echo 'Starting colcon build...' \
-    && colcon build \
-        --executor sequential \
-        --parallel-workers 1 \
-        --cmake-args -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
-        --event-handlers console_direct+ \
-    && echo 'Build completed successfully'" \
-    || (echo "Build failed but continuing..." && exit 0)
+    && rosdep install -r --from-paths . --ignore-src --rosdistro ${ROS_DISTRO} -y
 
-## Verify build succeeded
-RUN cd /opt/ws_moveit \
-    && if [ -d "install" ]; then \
-        echo "Build successful - install directory exists"; \
-    else \
-        echo "WARNING: Build may have failed - no install directory"; \
+## ── Step 12: Build workspace — fails loudly ───────────────────────────────────
+RUN --mount=type=cache,target=/tmp/ccache,sharing=locked \
+    /bin/bash -c "\
+        export CCACHE_DIR=/tmp/ccache && \
+        source /opt/ros/${ROS_DISTRO}/setup.bash && \
+        cd /opt/ws_moveit && \
+        colcon build \
+            --executor sequential \
+            --parallel-workers 1 \
+            --cmake-args \
+                -DCMAKE_BUILD_TYPE=Release \
+                -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
+            --event-handlers console_direct+ && \
+        echo 'BUILD SUCCEEDED'"
+
+RUN test -d /opt/ws_moveit/install \
+    || (echo "ERROR: /opt/ws_moveit/install missing — build failed" && exit 1)
+
+## ── Step 13: Shell environment ───────────────────────────────────────────────
+RUN echo "source /opt/ros/${ROS_DISTRO}/setup.bash" >> /root/.bashrc \
+    && echo "[ -f /opt/ws_moveit/install/setup.bash ] && source /opt/ws_moveit/install/setup.bash" \
+       >> /root/.bashrc
+
+## ── Step 14: Demo launch script (standalone, for manual use) ───────────────────
+RUN cat > /usr/local/bin/start-demo.sh <<'EOF'
+#!/bin/bash
+set -eo pipefail
+
+mkdir -p /tmp/runtime-root
+chmod 700 /tmp/runtime-root
+
+LOGDIR="/tmp/ur_demo_logs"
+mkdir -p "$LOGDIR"
+DRIVER_LOG="$LOGDIR/driver.log"
+MOVEIT_LOG="$LOGDIR/moveit.log"
+
+export AMENT_TRACE_SETUP_FILES=${AMENT_TRACE_SETUP_FILES:-}
+source /opt/ros/jazzy/setup.bash
+[ -f /opt/ws_moveit/install/setup.bash ] && source /opt/ws_moveit/install/setup.bash
+
+echo "[demo] Starting UR5e control stack (mock hardware)..."
+echo "[demo] Driver log: $DRIVER_LOG"
+
+ros2 launch ur_robot_driver ur_control.launch.py \
+    ur_type:=ur5e \
+    use_mock_hardware:=true \
+    robot_ip:=0.0.0.0 \
+    launch_rviz:=false \
+    initial_joint_controller:=scaled_joint_trajectory_controller \
+    > "$DRIVER_LOG" 2>&1 &
+DRIVER_PID=$!
+
+echo "[demo] Driver PID: $DRIVER_PID"
+sleep 5
+
+if ! kill -0 $DRIVER_PID 2>/dev/null; then
+    echo "[demo] ERROR: Driver failed to start. Check $DRIVER_LOG"
+    tail -30 "$DRIVER_LOG"
+    exit 1
+fi
+
+echo "[demo] Waiting for scaled_joint_trajectory_controller to become active..."
+TIMEOUT=120
+ELAPSED=0
+while true; do
+    if ros2 control list_controllers 2>/dev/null | grep -q "scaled_joint_trajectory_controller.*active"; then
+        echo "[demo] Controller active."
+        break
     fi
+    if ! kill -0 $DRIVER_PID 2>/dev/null; then
+        echo "[demo] ERROR: Driver process died. Check $DRIVER_LOG"
+        tail -30 "$DRIVER_LOG"
+        exit 1
+    fi
+    sleep 2
+    ELAPSED=$((ELAPSED + 2))
+    if [ $ELAPSED -ge $TIMEOUT ]; then
+        echo "[demo] ERROR: Controller never became active after ${TIMEOUT}s"
+        echo "[demo] Available controllers:"
+        ros2 control list_controllers 2>/dev/null || true
+        exit 1
+    fi
+    echo "[demo] ...waiting for controller (${ELAPSED}s)"
+done
 
-## FIX PERMISSIONS: Make workspace accessible to abc user (UID 1000)
-## This is CRITICAL - without this, the user can't access the workspace
-RUN chown -R 1000:1000 /opt/ws_moveit \
-    && chmod -R 755 /opt/ws_moveit
+echo "[demo] Waiting for /get_planning_scene service..."
+ELAPSED=0
+while true; do
+    if ros2 service list 2>/dev/null | grep -q "/get_planning_scene"; then
+        break
+    fi
+    sleep 1
+    ELAPSED=$((ELAPSED + 1))
+    if [ $ELAPSED -ge 60 ]; then
+        echo "[demo] ERROR: move_group never advertised /get_planning_scene"
+        exit 1
+    fi
+done
+echo "[demo] move_group ready."
 
-## Create symlink from home directory for convenience
-RUN mkdir -p /config \
-    && ln -sf /opt/ws_moveit /config/ws_moveit
+echo "[demo] Starting RViz..."
+ros2 launch ur_moveit_config ur_moveit.launch.py \
+    ur_type:=ur5e \
+    launch_rviz:=true \
+    2>&1 | tee "$MOVEIT_LOG"
+EOF
+RUN chmod +x /usr/local/bin/start-demo.sh
 
-## Set Up Workspace in bashrc for root user
-RUN echo 'source /opt/ros/'${ROS_DISTRO}'/setup.bash' >> /root/.bashrc \
-    && echo '[ -f /opt/ws_moveit/install/setup.bash ] && source /opt/ws_moveit/install/setup.bash' >> /root/.bashrc
+## ── Step 15: Info script ──────────────────────────────────────────────────────
+COPY <<EOF /usr/local/bin/workspace-info.sh
+#!/bin/bash
+echo "ROS2 MoveIt Workspace Information"
+echo "=================================="
+echo "Workspace: /opt/ws_moveit"
+echo ""
+echo "Commands:"
+echo "  start-demo.sh    Launch MoveIt demo (manual)"
+echo "  colcon build     Rebuild workspace"
+echo ""
+echo "Supervisor programs (auto-started):"
+echo "  init-dirs        Creates /tmp/runtime-root (priority 1)"
+echo "  ur-driver        UR5e mock hardware driver w/ scaled_joint_trajectory_controller"
+echo "  ur-moveit        MoveIt + RViz (waits for controller before starting)"
+echo ""
+echo "Verify execution is wired correctly:"
+echo "  ros2 control list_controllers"
+echo "  ros2 action list | grep follow_joint"
+echo "  (expect: /scaled_joint_trajectory_controller/follow_joint_trajectory)"
+echo ""
+echo "Logs:"
+echo "  /var/log/supervisor/ur_driver.log"
+echo "  /var/log/supervisor/ur_driver.err.log"
+echo "  /var/log/supervisor/ur_moveit.log"
+echo "  /var/log/supervisor/ur_moveit.err.log"
+echo ""
+ls -lah /opt/ws_moveit
+EOF
+RUN chmod +x /usr/local/bin/workspace-info.sh
 
-## Set Up Workspace in bashrc for abc user (linuxserver default user)  
-RUN echo 'source /opt/ros/'${ROS_DISTRO}'/setup.bash' >> /config/.bashrc \
-    && echo '[ -f /opt/ws_moveit/install/setup.bash ] && source /opt/ws_moveit/install/setup.bash' >> /config/.bashrc
+## ── Step 16: Strip any stray carriage returns ─────────────────────────────────
+RUN sed -i 's/\r$//' \
+    /usr/local/bin/start-demo.sh \
+    /usr/local/bin/workspace-info.sh \
+    /etc/supervisor/conf.d/webtop.conf \
+    /root/.vnc/xstartup
 
-## Create a script to start demo (accessible by all users)
-## NOTE: In Jazzy ur_robot_driver the argument is use_mock_hardware (not use_fake_hardware).
-## We wait for scaled_joint_trajectory_controller to be 'active' (not just /joint_states)
-## because /joint_states appears as soon as joint_state_broadcaster starts, but MoveIt
-## needs scaled_joint_trajectory_controller to be fully active before it can execute.
-## On autostart these activate at slightly different times, causing a race condition.
-## sleep 10 gives XFCE/display time to initialise before ROS nodes start.
-RUN echo '#!/bin/bash\n\
-sleep 10\n\
-source /opt/ros/'${ROS_DISTRO}'/setup.bash\n\
-if [ -f /opt/ws_moveit/install/setup.bash ]; then\n\
-    source /opt/ws_moveit/install/setup.bash\n\
-fi\n\
-echo "Starting UR5e control stack (mock hardware)..."\n\
-ros2 launch ur_robot_driver ur_control.launch.py \\\n\
-    ur_type:=ur5e \\\n\
-    use_mock_hardware:=true \\\n\
-    robot_ip:=0.0.0.0 \\\n\
-    launch_rviz:=false &\n\
-echo "Waiting for scaled_joint_trajectory_controller to become active..."\n\
-until ros2 control list_controllers 2>/dev/null | grep -q "scaled_joint_trajectory_controller.*active"; do\n\
-    sleep 1\n\
-done\n\
-echo "Controllers ready. Launching MoveIt + RViz..."\n\
-ros2 launch ur_moveit_config ur_moveit.launch.py \\\n\
-    ur_type:=ur5e \\\n\
-    launch_rviz:=true\n\
-' > /usr/local/bin/start-demo.sh \
-    && chmod +x /usr/local/bin/start-demo.sh
+## ── Step 17: Login message ───────────────────────────────────────────────────
+RUN echo 'echo "ROS2 MoveIt workspace ready. Run workspace-info.sh for details."' \
+    >> /root/.bashrc
 
-## Create a workspace info script
-RUN echo '#!/bin/bash\n\
-echo "ROS2 MoveIt Workspace Information"\n\
-echo "=================================="\n\
-echo "Workspace location: /opt/ws_moveit"\n\
-echo "Symlink: ~/ws_moveit -> /opt/ws_moveit"\n\
-echo ""\n\
-echo "Quick commands:"\n\
-echo "  cd ~/ws_moveit          # Go to workspace"\n\
-echo "  start-demo.sh           # Launch MoveIt demo"\n\
-echo "  colcon build            # Rebuild workspace"\n\
-echo ""\n\
-ls -lah /opt/ws_moveit\n\
-' > /usr/local/bin/workspace-info.sh \
-    && chmod +x /usr/local/bin/workspace-info.sh
-
-## Ensure proper permissions for config directory
-RUN mkdir -p /config && chmod 755 /config
-
-## Set environment for container runtime
-ENV LANG=en_US.UTF-8
-ENV LC_ALL=en_US.UTF-8
-
-## Suppress D-Bus warnings at runtime
-ENV DBUS_SESSION_BUS_ADDRESS=unix:path=/dev/null
-ENV NO_AT_BRIDGE=1
-
-## Set ccache directory for runtime
-ENV CCACHE_DIR=/tmp/ccache
-
-## Add helpful message on login
-RUN echo 'echo "ROS2 MoveIt workspace ready at ~/ws_moveit"' >> /config/.bashrc \
-    && echo 'echo "Run workspace-info.sh for more information"' >> /config/.bashrc
-
-## Set entrypoint script to launch MoveIt demo on container start
-RUN echo '#!/bin/bash\n\
-sleep 10\n\
-source /opt/ros/'${ROS_DISTRO}'/setup.bash\n\
-if [ -f /opt/ws_moveit/install/setup.bash ]; then\n\
-    source /opt/ws_moveit/install/setup.bash\n\
-fi\n\
-echo "Starting UR5e control stack (mock hardware)..."\n\
-ros2 launch ur_robot_driver ur_control.launch.py \\\n\
-    ur_type:=ur5e \\\n\
-    use_mock_hardware:=true \\\n\
-    robot_ip:=0.0.0.0 \\\n\
-    launch_rviz:=false &\n\
-echo "Waiting for scaled_joint_trajectory_controller to become active..."\n\
-until ros2 control list_controllers 2>/dev/null | grep -q "scaled_joint_trajectory_controller.*active"; do\n\
-    sleep 1\n\
-done\n\
-echo "Controllers ready. Launching MoveIt + RViz..."\n\
-ros2 launch ur_moveit_config ur_moveit.launch.py \\\n\
-    ur_type:=ur5e \\\n\
-    launch_rviz:=true\n\
-' > /usr/local/bin/entrypoint.sh \
-    && chmod +x /usr/local/bin/entrypoint.sh
-
-# ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
-RUN mkdir -p /etc/xdg/autostart && \
-    echo "[Desktop Entry]\nType=Application\nName=MoveIt Demo\nExec=/usr/local/bin/start-demo.sh\nX-GNOME-Autostart-enabled=true" \
-    > /etc/xdg/autostart/moveit-demo.desktop
+## ── Entrypoint ───────────────────────────────────────────────────────────────
+## Access via http://localhost:3000
+## Tail logs: docker exec -it <container> tail -f /var/log/supervisor/ur_moveit.log
+##
+## Verify execution after startup:
+##   docker exec -it <container> bash -c \
+##     "source /opt/ros/jazzy/setup.bash && ros2 action list | grep follow_joint"
+##   → /scaled_joint_trajectory_controller/follow_joint_trajectory
+CMD ["/usr/bin/supervisord", "-c", "/etc/supervisor/conf.d/webtop.conf"]

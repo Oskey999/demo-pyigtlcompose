@@ -1,0 +1,270 @@
+# syntax=docker/dockerfile:1.4
+FROM ubuntu:24.04
+
+ENV ROS_DISTRO=jazzy
+ENV DEBIAN_FRONTEND=noninteractive
+ENV DISPLAY=:1
+ENV LANG=en_US.UTF-8
+ENV LC_ALL=en_US.UTF-8
+ENV DBUS_SESSION_BUS_ADDRESS=unix:path=/dev/null
+ENV NO_AT_BRIDGE=1
+ENV CCACHE_DIR=/tmp/ccache
+
+EXPOSE 3000
+
+## ── Step 1: Base system ───────────────────────────────────────────────────────
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    locales \
+    supervisor \
+    xfce4 \
+    xfce4-terminal \
+    xfce4-screensaver \
+    dbus-x11 \
+    x11-xserver-utils \
+    tigervnc-standalone-server \
+    tigervnc-common \
+    tigervnc-tools \
+    novnc \
+    websockify \
+    libgl1 \
+    libglx-mesa0 \
+    libgl1-mesa-dri \
+    mesa-utils \
+    curl \
+    gnupg2 \
+    lsb-release \
+    software-properties-common \
+    && locale-gen en_US en_US.UTF-8 \
+    && update-locale LC_ALL=en_US.UTF-8 LANG=en_US.UTF-8 \
+    && rm -rf /var/lib/apt/lists/*
+
+## ── Step 2: ROS2 Jazzy repository ────────────────────────────────────────────
+RUN curl -sSL https://raw.githubusercontent.com/ros/rosdistro/master/ros.key \
+    -o /usr/share/keyrings/ros-archive-keyring.gpg \
+    && echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/ros-archive-keyring.gpg] \
+       http://packages.ros.org/ros2/ubuntu $(lsb_release -cs) main" \
+       > /etc/apt/sources.list.d/ros2.list
+
+## ── Step 3: ROS2 packages ────────────────────────────────────────────────────
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,target=/var/lib/apt,sharing=locked \
+    apt-get update && apt-get install -y \
+    ros-${ROS_DISTRO}-desktop \
+    ros-${ROS_DISTRO}-moveit
+
+## ── Step 4: Build tools ───────────────────────────────────────────────────────
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,target=/var/lib/apt,sharing=locked \
+    apt-get update && apt-get install -y \
+    python3-rosdep \
+    python3-colcon-common-extensions \
+    python3-colcon-mixin \
+    python3-vcstool \
+    git \
+    build-essential \
+    cmake \
+    ccache
+
+## ── Step 5: D-Bus / PolicyKit suppression ────────────────────────────────────
+RUN mkdir -p /etc/dbus-1/system.d/ \
+    && printf '<!DOCTYPE busconfig PUBLIC "-//freedesktop//DTD D-BUS Bus Configuration 1.0//EN"\n \
+ "http://www.freedesktop.org/standards/dbus/1.0/busconfig.dtd">\n\
+<busconfig>\n\
+  <servicedir>/usr/share/dbus-1/system-services</servicedir>\n\
+  <servicehelper>/bin/false</servicehelper>\n\
+</busconfig>\n' > /etc/dbus-1/system.d/no-systemd.conf
+
+RUN if [ -d /usr/share/dbus-1/system-services/ ]; then \
+        cd /usr/share/dbus-1/system-services/ && \
+        for svc in org.freedesktop.login1.service org.freedesktop.PolicyKit1.service; do \
+            [ -f "$svc" ] && mv "$svc" "$svc.disabled" || true; \
+        done; \
+    fi
+
+## ── Step 6: TigerVNC ─────────────────────────────────────────────────────────
+RUN mkdir -p /root/.vnc \
+    && printf '#!/bin/bash\nunset SESSION_MANAGER\nunset DBUS_SESSION_BUS_ADDRESS\nexec startxfce4\n' \
+       > /root/.vnc/xstartup \
+    && chmod +x /root/.vnc/xstartup \
+    && touch /root/.vnc/passwd \
+    && chmod 600 /root/.vnc/passwd
+
+## ── Step 7: Supervisor config ────────────────────────────────────────────────
+RUN mkdir -p /var/log/supervisor \
+    && printf '[supervisord]\n\
+nodaemon=true\n\
+logfile=/var/log/supervisor/supervisord.log\n\
+pidfile=/var/run/supervisord.pid\n\
+user=root\n\
+\n\
+[program:vncserver]\n\
+command=/usr/bin/vncserver :1 -geometry 1920x1080 -depth 24 -SecurityTypes None -fg\n\
+environment=HOME="/root"\n\
+autorestart=true\n\
+priority=10\n\
+stdout_logfile=/var/log/supervisor/vnc.log\n\
+stderr_logfile=/var/log/supervisor/vnc.err.log\n\
+\n\
+[program:novnc]\n\
+command=/usr/share/novnc/utils/novnc_proxy --vnc localhost:5901 --listen 3000\n\
+autorestart=true\n\
+priority=20\n\
+stdout_logfile=/var/log/supervisor/novnc.log\n\
+stderr_logfile=/var/log/supervisor/novnc.err.log\n\
+\n\
+[program:moveit-demo]\n\
+command=/usr/local/bin/start-demo.sh\n\
+environment=\n\
+    DISPLAY=":1",\n\
+    HOME="/root",\n\
+    ROS_DISTRO="jazzy",\n\
+    LIBGL_ALWAYS_SOFTWARE="1",\n\
+    MESA_GL_VERSION_OVERRIDE="3.3",\n\
+    QT_X11_NO_MITSHM="1",\n\
+    XDG_RUNTIME_DIR="/tmp/runtime-root"\n\
+autorestart=false\n\
+priority=30\n\
+startsecs=15\n\
+stdout_logfile=/var/log/supervisor/moveit.log\n\
+stderr_logfile=/var/log/supervisor/moveit.err.log\n' \
+    > /etc/supervisor/conf.d/webtop.conf
+
+## ── Step 8: rosdep ───────────────────────────────────────────────────────────
+RUN rosdep init || true && rosdep update
+
+## ── Step 9: Colcon mixins ─────────────────────────────────────────────────────
+RUN colcon mixin add default \
+    https://raw.githubusercontent.com/colcon/colcon-mixin-repository/master/index.yaml || true \
+    && colcon mixin update default || true
+
+## ── Step 10: Clone MoveIt workspace ──────────────────────────────────────────
+RUN mkdir -p /opt/ws_moveit/src \
+    && cd /opt/ws_moveit/src \
+    && git clone https://github.com/moveit/moveit2_tutorials
+
+RUN cd /opt/ws_moveit/src \
+    && vcs import --recursive < moveit2_tutorials/moveit2_tutorials.repos
+
+## ── Step 11: Install all apt dependencies (UR + rosdep) ─────────────────────
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,target=/var/lib/apt,sharing=locked \
+    apt-get update \
+    && apt-get install -y \
+        ros-${ROS_DISTRO}-ur \
+        ros-${ROS_DISTRO}-ur-robot-driver \
+        ros-${ROS_DISTRO}-ur-moveit-config \
+    && cd /opt/ws_moveit \
+    && rosdep install -r --from-paths . --ignore-src --rosdistro ${ROS_DISTRO} -y
+
+## ── Step 12: Build workspace — FAIL LOUDLY on error ─────────────────────────
+## NOTE: cache mount is for ccache only; build output goes to real filesystem.
+## Run `docker builder prune` before a clean rebuild to clear stale ccache.
+RUN --mount=type=cache,target=/tmp/ccache,sharing=locked \
+    /bin/bash -c "\
+        export CCACHE_DIR=/tmp/ccache && \
+        source /opt/ros/${ROS_DISTRO}/setup.bash && \
+        cd /opt/ws_moveit && \
+        colcon build \
+            --executor sequential \
+            --parallel-workers 1 \
+            --cmake-args \
+                -DCMAKE_BUILD_TYPE=Release \
+                -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
+            --event-handlers console_direct+ && \
+        echo 'BUILD SUCCEEDED'"
+
+## Verify install directory exists — hard fail if build was incomplete
+RUN test -d /opt/ws_moveit/install \
+    || (echo "ERROR: /opt/ws_moveit/install missing — build failed" && exit 1)
+
+## ── Step 13: Shell environment ───────────────────────────────────────────────
+RUN echo "source /opt/ros/${ROS_DISTRO}/setup.bash" >> /root/.bashrc \
+    && echo "[ -f /opt/ws_moveit/install/setup.bash ] && source /opt/ws_moveit/install/setup.bash" \
+       >> /root/.bashrc
+
+## ── Step 14: Demo script (use printf, not echo, for newlines) ────────────────
+## Waits for move_group to advertise its planning scene service before
+## launching RViz — this is what prevents "requesting initial scene failed".
+RUN printf '#!/bin/bash\n\
+# Environment is set by supervisord — do not override here\n\
+\n\
+mkdir -p /tmp/runtime-root\n\
+chmod 700 /tmp/runtime-root\n\
+\n\
+source /opt/ros/%s/setup.bash\n\
+[ -f /opt/ws_moveit/install/setup.bash ] && source /opt/ws_moveit/install/setup.bash\n\
+\n\
+echo "[demo] Starting UR5e control stack (mock hardware)..."\n\
+ros2 launch ur_robot_driver ur_control.launch.py \\\n\
+    ur_type:=ur5e \\\n\
+    use_mock_hardware:=true \\\n\
+    robot_ip:=0.0.0.0 \\\n\
+    launch_rviz:=false &\n\
+DRIVER_PID=$!\n\
+\n\
+echo "[demo] Waiting for scaled_joint_trajectory_controller to become active..."\n\
+TIMEOUT=120\n\
+ELAPSED=0\n\
+while true; do\n\
+    if ros2 control list_controllers 2>/dev/null \\\n\
+       | grep -q "scaled_joint_trajectory_controller.*active"; then\n\
+        break\n\
+    fi\n\
+    if ! kill -0 $DRIVER_PID 2>/dev/null; then\n\
+        echo "[demo] ERROR: Driver process died. Check moveit.err.log"\n\
+        exit 1\n\
+    fi\n\
+    sleep 2\n\
+    ELAPSED=$((ELAPSED+2))\n\
+    if [ $ELAPSED -ge $TIMEOUT ]; then\n\
+        echo "[demo] ERROR: Controller never became active after ${TIMEOUT}s"\n\
+        exit 1\n\
+    fi\n\
+    echo "[demo] ...waiting for controller ($ELAPSED s)"\n\
+done\n\
+echo "[demo] Controller active."\n\
+\n\
+echo "[demo] Waiting for /get_planning_scene service..."\n\
+ELAPSED=0\n\
+while true; do\n\
+    if ros2 service list 2>/dev/null | grep -q "/get_planning_scene"; then\n\
+        break\n\
+    fi\n\
+    sleep 1\n\
+    ELAPSED=$((ELAPSED+1))\n\
+    if [ $ELAPSED -ge 60 ]; then\n\
+        echo "[demo] ERROR: move_group never advertised /get_planning_scene"\n\
+        exit 1\n\
+    fi\n\
+done\n\
+echo "[demo] move_group ready. Starting RViz..."\n\
+\n\
+ros2 launch ur_moveit_config ur_moveit.launch.py \\\n\
+    ur_type:=ur5e \\\n\
+    launch_rviz:=true\n\
+' "${ROS_DISTRO}" > /usr/local/bin/start-demo.sh \
+    && chmod +x /usr/local/bin/start-demo.sh
+
+## ── Step 15: Info script ──────────────────────────────────────────────────────
+RUN printf '#!/bin/bash\n\
+echo "ROS2 MoveIt Workspace Information"\n\
+echo "=================================="\n\
+echo "Workspace: /opt/ws_moveit"\n\
+echo ""\n\
+echo "Commands:"\n\
+echo "  start-demo.sh    Launch MoveIt demo"\n\
+echo "  colcon build     Rebuild workspace"\n\
+echo ""\n\
+ls -lah /opt/ws_moveit\n\
+' > /usr/local/bin/workspace-info.sh \
+    && chmod +x /usr/local/bin/workspace-info.sh
+
+## ── Step 16: XFCE autostart ──────────────────────────────────────────────────
+# RUN mkdir -p /etc/xdg/autostart \
+#     && printf '[Desktop Entry]\nType=Application\nName=MoveIt Demo\nExec=/usr/local/bin/start-demo.sh\nX-GNOME-Autostart-enabled=true\n' \
+#        > /etc/xdg/autostart/moveit-demo.desktop
+
+# RUN echo 'echo "ROS2 MoveIt workspace ready. Run workspace-info.sh for details."' \
+#     >> /root/.bashrc
+
+# CMD ["/usr/bin/supervisord", "-c", "/etc/supervisor/conf.d/webtop.conf"]

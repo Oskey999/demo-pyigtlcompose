@@ -1,79 +1,278 @@
+# syntax=docker/dockerfile:1.4
 ## Docker container for simulating a robot arm using ROS2 and Gazebo
-## Based on ubuntu desktop with XFCE and web access
+## Based on ubuntu:24.04 with XFCE desktop, TigerVNC, and noVNC web access
 
-## Based on tutorial here https://moveit.picknik.ai/main/doc/tutorials/getting_started/getting_started.html
-## Note: Using ROS 2 Jazzy (Ubuntu 24.04) instead of Humble (Ubuntu 22.04)
-
-# Use Ubuntu 24.04 with ROS 2 Jazzy
-FROM linuxserver/webtop:ubuntu-xfce
+FROM ubuntu:24.04
 
 ENV ROS_DISTRO=jazzy
-ARG dockerpath=dockerfiles/ROS2armsim
+ENV DEBIAN_FRONTEND=noninteractive
+ENV DISPLAY=:1
+ENV LANG=en_US.UTF-8
+ENV LC_ALL=en_US.UTF-8
+ENV DBUS_SESSION_BUS_ADDRESS=unix:path=/dev/null
+ENV NO_AT_BRIDGE=1
+ENV CCACHE_DIR=/tmp/ccache
 
-## Web access port
 EXPOSE 3000
 
-## Install ROS2 Jazzy
-RUN apt-get update && apt-get install -y \
-    gnupg2 lsb-release curl software-properties-common locales \
+## ── Step 1: Base system + desktop + VNC + noVNC ──────────────────────────────
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    locales \
+    supervisor \
+    xfce4 \
+    xfce4-terminal \
+    xfce4-screensaver \
+    dbus-x11 \
+    x11-xserver-utils \
+    tigervnc-standalone-server \
+    tigervnc-common \
+    tigervnc-tools \
+    novnc \
+    websockify \
+    libgl1 \
+    libglx-mesa0 \
+    libgl1-mesa-dri \
+    mesa-utils \
+    curl \
+    gnupg2 \
+    lsb-release \
+    software-properties-common \
     && locale-gen en_US en_US.UTF-8 \
     && update-locale LC_ALL=en_US.UTF-8 LANG=en_US.UTF-8 \
-    && export LANG=en_US.UTF-8 \
-    && curl -sSL https://raw.githubusercontent.com/ros/rosdistro/master/ros.key -o /usr/share/keyrings/ros-archive-keyring.gpg \
-    && echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/ros-archive-keyring.gpg] http://packages.ros.org/ros2/ubuntu $(lsb_release -cs) main" | tee /etc/apt/sources.list.d/ros2.list > /dev/null \
-    && apt-get update && apt-get install -y \
-    ros-${ROS_DISTRO}-desktop \
-    ros-${ROS_DISTRO}-moveit \
     && rm -rf /var/lib/apt/lists/*
 
-## Load ROS2 environment and install dependencies
-RUN apt-get update && apt-get install -y \
+## ── Step 2: ROS2 Jazzy apt repository ───────────────────────────────────────
+RUN curl -sSL https://raw.githubusercontent.com/ros/rosdistro/master/ros.key \
+    -o /usr/share/keyrings/ros-archive-keyring.gpg \
+    && echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/ros-archive-keyring.gpg] \
+       http://packages.ros.org/ros2/ubuntu $(lsb_release -cs) main" \
+       > /etc/apt/sources.list.d/ros2.list
+
+## ── Step 3: ROS2 packages ────────────────────────────────────────────────────
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,target=/var/lib/apt,sharing=locked \
+    apt-get update && apt-get install -y \
+    ros-${ROS_DISTRO}-desktop \
+    ros-${ROS_DISTRO}-moveit
+
+## ── Step 4: Build dependencies ───────────────────────────────────────────────
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,target=/var/lib/apt,sharing=locked \
+    apt-get update && apt-get install -y \
     python3-rosdep \
     python3-colcon-common-extensions \
     python3-colcon-mixin \
     python3-vcstool \
     git \
-    && rm -rf /var/lib/apt/lists/*
+    build-essential \
+    cmake \
+    ccache
 
-## Initialize rosdep
-RUN rosdep init || true \
-    && rosdep update
+## ── Step 5: D-Bus / PolicyKit suppression ────────────────────────────────────
+RUN mkdir -p /etc/dbus-1/system.d/ \
+    && cat > /etc/dbus-1/system.d/no-systemd.conf << 'EOF'
+<!DOCTYPE busconfig PUBLIC "-//freedesktop//DTD D-BUS Bus Configuration 1.0//EN"
+ "http://www.freedesktop.org/standards/dbus/1.0/busconfig.dtd">
+<busconfig>
+  <servicedir>/usr/share/dbus-1/system-services</servicedir>
+  <servicehelper>/bin/false</servicehelper>
+</busconfig>
+EOF
 
-## Install Colcon mixins
-RUN colcon mixin add default https://raw.githubusercontent.com/colcon/colcon-mixin-repository/master/index.yaml || true \
+RUN if [ -d /usr/share/dbus-1/system-services/ ]; then \
+        cd /usr/share/dbus-1/system-services/ && \
+        for svc in org.freedesktop.login1.service org.freedesktop.PolicyKit1.service; do \
+            [ -f "$svc" ] && mv "$svc" "$svc.disabled" || true; \
+        done; \
+    fi
+
+## ── Step 6: TigerVNC ─────────────────────────────────────────────────────────
+RUN mkdir -p /root/.vnc \
+    && cat > /root/.vnc/xstartup << 'EOF'
+#!/bin/bash
+unset SESSION_MANAGER
+unset DBUS_SESSION_BUS_ADDRESS
+exec startxfce4
+EOF
+    chmod +x /root/.vnc/xstartup && \
+    touch /root/.vnc/passwd && \
+    chmod 600 /root/.vnc/passwd
+
+## ── Step 7: Supervisor config ────────────────────────────────────────────────
+RUN mkdir -p /var/log/supervisor \
+    && cat > /etc/supervisor/conf.d/webtop.conf << 'EOF'
+[supervisord]
+nodaemon=true
+logfile=/var/log/supervisor/supervisord.log
+pidfile=/var/run/supervisord.pid
+user=root
+
+[program:vncserver]
+command=/usr/bin/vncserver :1 -geometry 1920x1080 -depth 24 -SecurityTypes None -fg
+environment=HOME="/root"
+autorestart=true
+priority=10
+stdout_logfile=/var/log/supervisor/vnc.log
+stderr_logfile=/var/log/supervisor/vnc.err.log
+
+[program:novnc]
+command=/usr/share/novnc/utils/novnc_proxy --vnc localhost:5901 --listen 3000
+autorestart=true
+priority=20
+stdout_logfile=/var/log/supervisor/novnc.log
+stderr_logfile=/var/log/supervisor/novnc.err.log
+
+[program:moveit-demo]
+command=/usr/local/bin/start-demo.sh
+environment=DISPLAY=":1",HOME="/root",ROS_DISTRO="jazzy",LIBGL_ALWAYS_SOFTWARE="1",MESA_GL_VERSION_OVERRIDE="3.3",QT_X11_NO_MITSHM="1",XDG_RUNTIME_DIR="/tmp/runtime-root"
+autorestart=false
+priority=30
+startsecs=15
+stdout_logfile=/var/log/supervisor/moveit.log
+stderr_logfile=/var/log/supervisor/moveit.err.log
+EOF
+
+## ── Step 8: Initialize rosdep ────────────────────────────────────────────────
+RUN rosdep init || true && rosdep update
+
+## ── Step 9: Colcon mixins ────────────────────────────────────────────────────
+RUN colcon mixin add default \
+    https://raw.githubusercontent.com/colcon/colcon-mixin-repository/master/index.yaml || true \
     && colcon mixin update default || true
 
-## Create workspace and clone tutorials
-## Note: Using jazzy branch for ROS 2 Jazzy
-RUN mkdir -p /root/ws_moveit/src \
-    && cd /root/ws_moveit/src \
-    # && git clone -b ${ROS_DISTRO} https://github.com/moveit/moveit2_tutorials
+## ── Step 10: Clone MoveIt workspace ──────────────────────────────────────────
+RUN mkdir -p /opt/ws_moveit/src \
+    && cd /opt/ws_moveit/src \
     && git clone https://github.com/moveit/moveit2_tutorials
 
-
-## Import dependencies
-RUN cd /root/ws_moveit/src \
+RUN cd /opt/ws_moveit/src \
     && vcs import --recursive < moveit2_tutorials/moveit2_tutorials.repos
 
-## Build Workspace
-RUN /bin/bash -c "source /opt/ros/${ROS_DISTRO}/setup.bash \
-    && cd /root/ws_moveit \
-    && apt-get update \
-    && rosdep install -r --from-paths . --ignore-src --rosdistro ${ROS_DISTRO} -y \
-    && colcon build --mixin release"
+## ── Step 11: Install apt dependencies (UR + rosdep) ─────────────────────────
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,target=/var/lib/apt,sharing=locked \
+    apt-get update \
+    && apt-get install -y \
+        ros-${ROS_DISTRO}-ur \
+        ros-${ROS_DISTRO}-ur-robot-driver \
+        ros-${ROS_DISTRO}-ur-moveit-config \
+    && cd /opt/ws_moveit \
+    && rosdep install -r --from-paths . --ignore-src --rosdistro ${ROS_DISTRO} -y
 
-## Set Up Workspace in bashrc for root user
-RUN echo 'source /opt/ros/'${ROS_DISTRO}'/setup.bash' >> /root/.bashrc \
-    && echo 'source /root/ws_moveit/install/setup.bash' >> /root/.bashrc
+## ── Step 12: Build workspace — fails loudly ───────────────────────────────────
+## Only ccache is in a cache mount; build output goes to the real filesystem.
+## Run `docker builder prune --filter type=exec.cachemount` before a clean
+## rebuild to avoid stale ccache entries.
+RUN --mount=type=cache,target=/tmp/ccache,sharing=locked \
+    /bin/bash -c "\
+        export CCACHE_DIR=/tmp/ccache && \
+        source /opt/ros/${ROS_DISTRO}/setup.bash && \
+        cd /opt/ws_moveit && \
+        colcon build \
+            --executor sequential \
+            --parallel-workers 1 \
+            --cmake-args \
+                -DCMAKE_BUILD_TYPE=Release \
+                -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
+            --event-handlers console_direct+ && \
+        echo 'BUILD SUCCEEDED'"
 
-## Set Up Workspace in bashrc for abc user (linuxserver default user)
-RUN echo 'source /opt/ros/'${ROS_DISTRO}'/setup.bash' >> /config/.bashrc \
-    && echo 'source /root/ws_moveit/install/setup.bash' >> /config/.bashrc
+## Hard fail if the install directory is missing
+RUN test -d /opt/ws_moveit/install \
+    || (echo "ERROR: /opt/ws_moveit/install missing — build failed" && exit 1)
 
-## Create a script to start demo
-RUN echo '#!/bin/bash\n\
-source /opt/ros/'${ROS_DISTRO}'/setup.bash\n\
-source /root/ws_moveit/install/setup.bash\n\
-cd /root/ws_moveit/\n\
-ros2 launch moveit2_tutorials demo.launch.py' > /usr/local/bin/start-demo.sh \
-    && chmod +x /usr/local/bin/start-demo.sh
+## ── Step 13: Shell environment ───────────────────────────────────────────────
+RUN echo "source /opt/ros/${ROS_DISTRO}/setup.bash" >> /root/.bashrc \
+    && echo "[ -f /opt/ws_moveit/install/setup.bash ] && source /opt/ws_moveit/install/setup.bash" \
+       >> /root/.bashrc
+
+## ── Step 14: Demo launch script ──────────────────────────────────────────────
+## Waits for the controller and then for move_group's planning scene service
+## before opening RViz, preventing "requesting initial scene failed".
+RUN cat > /usr/local/bin/start-demo.sh << 'SCRIPT'
+#!/bin/bash
+
+mkdir -p /tmp/runtime-root
+chmod 700 /tmp/runtime-root
+
+source /opt/ros/jazzy/setup.bash
+[ -f /opt/ws_moveit/install/setup.bash ] && source /opt/ws_moveit/install/setup.bash
+
+echo "[demo] Starting UR5e control stack (mock hardware)..."
+ros2 launch ur_robot_driver ur_control.launch.py \
+    ur_type:=ur5e \
+    use_mock_hardware:=true \
+    robot_ip:=0.0.0.0 \
+    launch_rviz:=false &
+DRIVER_PID=$!
+
+echo "[demo] Waiting for scaled_joint_trajectory_controller to become active..."
+TIMEOUT=120
+ELAPSED=0
+while true; do
+    if ros2 control list_controllers 2>/dev/null \
+       | grep -q "scaled_joint_trajectory_controller.*active"; then
+        break
+    fi
+    if ! kill -0 $DRIVER_PID 2>/dev/null; then
+        echo "[demo] ERROR: Driver process died. Check moveit.err.log"
+        exit 1
+    fi
+    sleep 2
+    ELAPSED=$((ELAPSED + 2))
+    if [ $ELAPSED -ge $TIMEOUT ]; then
+        echo "[demo] ERROR: Controller never became active after ${TIMEOUT}s"
+        exit 1
+    fi
+    echo "[demo] ...waiting for controller (${ELAPSED}s)"
+done
+echo "[demo] Controller active."
+
+echo "[demo] Waiting for /get_planning_scene service..."
+ELAPSED=0
+while true; do
+    if ros2 service list 2>/dev/null | grep -q "/get_planning_scene"; then
+        break
+    fi
+    sleep 1
+    ELAPSED=$((ELAPSED + 1))
+    if [ $ELAPSED -ge 60 ]; then
+        echo "[demo] ERROR: move_group never advertised /get_planning_scene"
+        exit 1
+    fi
+done
+echo "[demo] move_group ready. Starting RViz..."
+
+ros2 launch ur_moveit_config ur_moveit.launch.py \
+    ur_type:=ur5e \
+    launch_rviz:=true
+SCRIPT
+RUN chmod +x /usr/local/bin/start-demo.sh
+
+## ── Step 15: Info script ──────────────────────────────────────────────────────
+RUN cat > /usr/local/bin/workspace-info.sh << 'SCRIPT'
+#!/bin/bash
+echo "ROS2 MoveIt Workspace Information"
+echo "=================================="
+echo "Workspace: /opt/ws_moveit"
+echo ""
+echo "Commands:"
+echo "  start-demo.sh    Launch MoveIt demo"
+echo "  colcon build     Rebuild workspace"
+echo ""
+echo "Logs (while container is running):"
+echo "  /var/log/supervisor/moveit.log"
+echo "  /var/log/supervisor/moveit.err.log"
+echo ""
+ls -lah /opt/ws_moveit
+SCRIPT
+RUN chmod +x /usr/local/bin/workspace-info.sh
+
+## ── Step 16: Login message ───────────────────────────────────────────────────
+RUN echo 'echo "ROS2 MoveIt workspace ready. Run workspace-info.sh for details."' \
+    >> /root/.bashrc
+
+## ── Entrypoint ───────────────────────────────────────────────────────────────
+## Access via http://localhost:3000
+## Tail logs with: docker exec -it <container> tail -f /var/log/supervisor/moveit.log
+CMD ["/usr/bin/supervisord", "-c", "/etc/supervisor/conf.d/webtop.conf"]

@@ -69,6 +69,82 @@ class Loader:
             print(f"Publisher created successfully: {self.pubTransform.GetTopic()}")
         print("Loader initialization completed")
 
+    def updateIGTLConnection(self, host, port):
+        """Update the IGTL connection with new host and port"""
+        print(f"Updating IGTL connection to {host}:{port}")
+        
+        try:
+            # Stop existing connection
+            if self.IGTLNode is not None:
+                self.IGTLNode.Stop()
+                print("Stopped existing IGTL connection")
+                # Remove old node from scene
+                slicer.mrmlScene.RemoveNode(self.IGTLNode)
+                self.IGTLNode = None
+            
+            # Create new connection
+            self.IGTLNode = slicer.vtkMRMLIGTLConnectorNode()
+            slicer.mrmlScene.AddNode(self.IGTLNode)
+            self.IGTLNode.SetName('DataConnector')
+            self.IGTLNode.SetTypeClient(host, port)
+            print(f'Connecting to TMS server at {host}:{port}')
+            
+            # Configure the connector
+            self.IGTLNode.Start()
+            if hasattr(self, 'efieldNode') and self.efieldNode:
+                self.IGTLNode.RegisterIncomingMRMLNode(self.efieldNode)
+                print("Registered E-field node as incoming MRML node")
+            
+            if hasattr(self, 'magfieldNode') and self.magfieldNode:
+                self.IGTLNode.RegisterOutgoingMRMLNode(self.magfieldNode)
+                print("Registered magnetic field node as outgoing MRML node")
+            
+            self.IGTLNode.PushOnConnect()
+            print('OpenIGTLink Connector updated!')
+            
+            # Add observer for incoming IGTL image data
+            if hasattr(self, 'pyigtlNode') and self.pyigtlNode:
+                # Remove existing observer if any
+                if hasattr(self, 'observationTag') and self.observationTag:
+                    self.pyigtlNode.RemoveObserver(self.observationTag)
+                
+                self.observationTag = self.pyigtlNode.AddObserver(
+                    slicer.vtkMRMLScalarVolumeNode.ImageDataModifiedEvent, 
+                    self.newImage
+                )
+                print(f"Added observer for pyigtl node with tag: {self.observationTag}")
+            
+        except Exception as e:
+            print(f"ERROR updating IGTL connection: {e}")
+            import traceback
+            traceback.print_exc()
+
+    def disconnectIGTL(self):
+        """Disconnect the IGTL connection"""
+        print("Disconnecting IGTL connection")
+        
+        try:
+            if self.IGTLNode is not None:
+                self.IGTLNode.Stop()
+                print("IGTL connection stopped")
+                
+            # Remove observers
+            if hasattr(self, 'pyigtlNode') and self.pyigtlNode and hasattr(self, 'observationTag'):
+                self.pyigtlNode.RemoveObserver(self.observationTag)
+                print("Removed pyigtl node observer")
+                
+        except Exception as e:
+            print(f"Error disconnecting IGTL: {e}")
+
+    def isIGTLConnected(self):
+        """Check if IGTL connection is active"""
+        try:
+            if self.IGTLNode is not None:
+                return self.IGTLNode.GetState() == self.IGTLNode.StateConnected
+            return False
+        except:
+            return False
+
     # New for ROS
     # def onTransformModified(self, caller, event):
     #     print("Transform modified event received, preparing to publish transform\n--------------------------------------------------------------------")
@@ -107,7 +183,6 @@ class Loader:
                 fiberNode1.SetDisplayVisibility(0)
                 print("Set fibers hidden")
 
-
     def updateMatrix(self):
         print("updateMatrix method called")
         # Create a 4x4 matrix with the values entered by the user
@@ -140,7 +215,6 @@ class Loader:
         else:
             print("Plane node not found")
 
-
     def showMesh(self):
         print(f"showMesh method called with self value: {self}")
         brainTransparentNode = slicer.util.getNode('brainTransparent')
@@ -159,7 +233,6 @@ class Loader:
             print("Hide Brain Surface")
             modelNode.SetDisplayVisibility(0)
             print("Set brain surface hidden")
-
 
     def showVolumeRendering(self):
         print(f"showVolumeRendering method called with self value: {self}")
@@ -185,15 +258,18 @@ class Loader:
             pyigtlNode.SetDisplayVisibility(0)
             print("Set volume rendering components hidden")
 
-
     def newImage(self, caller, event):
         print('New CNN Image received via PyIgtl')
         M.Mapper.modifyIncomingImage(self)
 
-#  Factory method to load example
+    # Factory method to load example
     @classmethod
-    def loadExample(cls, example_path):
+    def loadExample(cls, example_path, connection_info=None):
+        """Load example with optional connection info"""
         print(f"Starting loadExample with path: {example_path}")
+        if connection_info:
+            print(f"Connection info provided: {connection_info}")
+        
         print('Your selected Example: ' + example_path)
         data_directory = os.path.join(os.path.dirname(slicer.modules.slicertms.path), '../', example_path)
         print(f"Data directory resolved to: {data_directory}")
@@ -333,7 +409,6 @@ class Loader:
         skinDisplayNode.SetOpacity(0.35)
         print("Configured skin display settings")
 
-
         #
         # 4. TMS coil:
         #
@@ -442,11 +517,16 @@ class Loader:
         loader.enormNode.SetName('ENorm')
         print("Copied properties from conductivity to enorm node")
 
-       # IGTL connections
-        # Get server host from environment variable
-        tms_server_host = os.environ.get('TMS_SERVER_HOST', 'localhost')
-        tms_server_port = int(os.environ.get('TMS_SERVER_PORT_1', '18944'))
-        print(f"Server host from environment: {tms_server_host}:{tms_server_port}")
+        # IGTL connections - Use connection_info if provided
+        # Get server host from environment or connection_info
+        if connection_info:
+            tms_server_host = connection_info.get('host', 'localhost')
+            tms_server_port = connection_info.get('port', 18944)
+            print(f"Using connection info from widget: {tms_server_host}:{tms_server_port}")
+        else:
+            tms_server_host = os.environ.get('TMS_SERVER_HOST', 'localhost')
+            tms_server_port = int(os.environ.get('TMS_SERVER_PORT_1', '18944'))
+            print(f"Using environment variables: {tms_server_host}:{tms_server_port}")
 
         # FIX: Create IGTL node if it's None
         if loader.IGTLNode is None:
@@ -485,6 +565,8 @@ class Loader:
         # loader.pyigtlNode.Copy(loader.enormNode)
         loader.pyigtlNode.SetName('pyigtl_data')
         print(f"Created pyigtl data node: {loader.pyigtlNode}")
+        loader.IGTLNode.RegisterIncomingMRMLNode(loader.pyigtlNode)  # 'pyigtl_data'
+        print("Registered pyigtl_data node as incoming MRML node")  
 
         # Display setting
         # conductivityDisplayNode = loader.conductivityNode.GetDisplayNode()
@@ -506,8 +588,8 @@ class Loader:
         slicer.app.processEvents()  # Dynamic updating scene
         print("Processed application events")
 
-        observationTag = loader.pyigtlNode.AddObserver(slicer.vtkMRMLScalarVolumeNode.ImageDataModifiedEvent, loader.newImage)
-        print(f"Added observer for pyigtl node image data modification: tag {observationTag}")
+        loader.observationTag = loader.pyigtlNode.AddObserver(slicer.vtkMRMLScalarVolumeNode.ImageDataModifiedEvent, loader.newImage)
+        print(f"Added observer for pyigtl node image data modification: tag {loader.observationTag}")
 
         # # call one time
         loader.callMapper()
